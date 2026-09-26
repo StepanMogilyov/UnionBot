@@ -3,42 +3,38 @@ require("dotenv").config();
 
 import axios from "axios";
 
-const { WEBHOOK_URL = "", HOST = "", PORT = "" } = process.env;
+const {WEBHOOK_URL = "", HOST = "", PORT = ""} = process.env;
 
-let previousPlayers: number | null = null;
+let previousPlayers: string[] | null = null;
 
 async function checkServer() {
   try {
     const info = await query.info(HOST, Number(PORT), 5000);
 
-    const currentPlayers = info.players;
+    const players = await query.players(HOST, Number(PORT), 5000);
 
-    console.log(
-      `[${new Date().toLocaleTimeString()}] Players: ${currentPlayers}/${info.max_players}`
-    );
+    const currentPlayers: string[] = players.map((player: any) => player.name).filter((name: string) => typeof name === "string" && name.trim().length > 0);
 
     if (previousPlayers === null) {
       previousPlayers = currentPlayers;
       return;
     }
 
-    if (currentPlayers === previousPlayers) {
-      return;
-    }
+    const joinedPlayers = currentPlayers.filter((name) => !previousPlayers!.includes(name));
 
-    const difference = currentPlayers - previousPlayers;
+    const leftPlayers = previousPlayers.filter((name) => !currentPlayers.includes(name));
 
     previousPlayers = currentPlayers;
 
-    if (difference > 0) {
+    for (const name of joinedPlayers) {
       await axios.post(WEBHOOK_URL, {
-        content:
-          `🟢 Игрок зашёл на сервер. Онлайн: **${currentPlayers}/${info.max_players}**`,
+        content: `🟢 **${name}** зашёл на сервер. Онлайн: **${info.players}/${info.max_players}**`,
       });
-    } else {
+    }
+
+    for (const name of leftPlayers) {
       await axios.post(WEBHOOK_URL, {
-        content:
-          `🔴 Игрок вышел с сервера. Онлайн: **${currentPlayers}/${info.max_players}**`,
+        content: `🔴 **${name}** вышел с сервера. Онлайн: **${info.players}/${info.max_players}**`,
       });
     }
   } catch (error) {
@@ -47,4 +43,5 @@ async function checkServer() {
 }
 
 checkServer();
+
 setInterval(checkServer, 60_000);
