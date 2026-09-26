@@ -4,7 +4,6 @@ require("dotenv").config();
 import {
   Client,
   GatewayIntentBits,
-  TextBasedChannel,
 } from "discord.js";
 
 const {
