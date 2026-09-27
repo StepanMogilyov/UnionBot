@@ -47,7 +47,7 @@ interface PlayerEventMessage {
   maxPlayers: number;
   onlineCount: number;
   playerName: string;
-  text: string;
+  action: string;
 }
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "" } = process.env;
@@ -81,7 +81,7 @@ function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxP
 function createPlayerEventEmbed(event: PlayerEventMessage) {
   return new EmbedBuilder()
     .setColor(event.color)
-    .setDescription(`${event.icon} **${escapeMarkdown(event.playerName)}** ${event.text} на сервер.`)
+    .setDescription(`${event.icon} **${escapeMarkdown(event.playerName)}** ${event.action}.`)
     .addFields(
       {
         name: "Онлайн",
@@ -149,7 +149,7 @@ async function checkServer() {
         maxPlayers: info.max_players,
         onlineCount: info.players,
         playerName: name,
-        text: "зашёл",
+        action: "зашёл на сервер",
       });
     }
 
@@ -161,7 +161,7 @@ async function checkServer() {
         maxPlayers: info.max_players,
         onlineCount: info.players,
         playerName: name,
-        text: "вышел",
+        action: "вышел с сервера",
       });
     }
   } catch (error) {
