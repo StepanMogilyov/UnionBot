@@ -56,11 +56,11 @@ async function checkServer() {
     previousPlayers = currentPlayers;
 
     for (const name of joinedPlayers) {
-      await sendToDiscord(`🟢 **${name}** зашёл на карту **${info.map}**. Онлайн: **${info.players}/${info.max_players}**`);
+      await sendToDiscord(`🟢 **${name}** зашёл на сервер. Онлайн: **${info.players}/${info.max_players}**. Карта: **${info.map}**`);
     }
 
     for (const name of leftPlayers) {
-      await sendToDiscord(`🔴 **${name}** вышел с карты **${info.map}**. Онлайн: **${info.players}/${info.max_players}**`);
+      await sendToDiscord(`🔴 **${name}** зашёл на сервер. Онлайн: **${info.players}/${info.max_players}**. Карта: **${info.map}**`);
     }
   } catch (error) {
     console.error("Ошибка запроса:", error);
