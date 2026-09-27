@@ -1,7 +1,7 @@
 const query = require("source-server-query") as SourceServerQuery;
 require("dotenv").config();
 
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits, MessageFlags, escapeMarkdown } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, MessageFlags, escapeMarkdown } from "discord.js";
 
 interface ServerInfo {
   header: string;
@@ -40,6 +40,16 @@ interface ServerSnapshot {
   maxPlayers: number;
 }
 
+interface PlayerEventMessage {
+  color: number;
+  icon: string;
+  map: string;
+  maxPlayers: number;
+  onlineCount: number;
+  playerName: string;
+  text: string;
+}
+
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "" } = process.env;
 
 const client = new Client({
@@ -56,7 +66,9 @@ let latestServerSnapshot: ServerSnapshot | null = null;
 const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
 
 function createOnlinePlayersButtonRow() {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(ONLINE_PLAYERS_BUTTON_ID).setLabel("TAB").setStyle(ButtonStyle.Secondary));
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(ONLINE_PLAYERS_BUTTON_ID).setEmoji("⚔️").setLabel("TAB").setStyle(ButtonStyle.Primary),
+  );
 }
 
 function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxPlayers: number) {
@@ -66,7 +78,25 @@ function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxP
   return `**Игроки онлайн — ${onlineCount}/${maxPlayers}**\n\n${playerList}`;
 }
 
-async function sendToDiscord(message: string) {
+function createPlayerEventEmbed(event: PlayerEventMessage) {
+  return new EmbedBuilder()
+    .setColor(event.color)
+    .setDescription(`${event.icon} **${escapeMarkdown(event.playerName)}** ${event.text} на сервер.`)
+    .addFields(
+      {
+        name: "Онлайн",
+        value: `**${event.onlineCount}/${event.maxPlayers}**`,
+        inline: true,
+      },
+      {
+        name: "Карта",
+        value: `**${escapeMarkdown(event.map)}**`,
+        inline: true,
+      },
+    );
+}
+
+async function sendToDiscord(event: PlayerEventMessage) {
   for (const channelId of channelIds) {
     try {
       const channel = await client.channels.fetch(channelId);
@@ -77,7 +107,7 @@ async function sendToDiscord(message: string) {
       }
 
       await channel.send({
-        content: message,
+        embeds: [createPlayerEventEmbed(event)],
         components: [createOnlinePlayersButtonRow()],
       });
     } catch (error) {
@@ -116,11 +146,27 @@ async function checkServer() {
     previousPlayers = currentPlayers;
 
     for (const name of joinedPlayers) {
-      await sendToDiscord(`🟢 **${name}** зашёл на сервер. Онлайн: **${info.players}/${info.max_players}**. Карта: **${info.map}**`);
+      await sendToDiscord({
+        color: 0x57f287,
+        icon: "🟢",
+        map: info.map,
+        maxPlayers: info.max_players,
+        onlineCount: info.players,
+        playerName: name,
+        text: "зашёл",
+      });
     }
 
     for (const name of leftPlayers) {
-      await sendToDiscord(`🔴 **${name}** вышел с сервера. Онлайн: **${info.players}/${info.max_players}**. Карта: **${info.map}**`);
+      await sendToDiscord({
+        color: 0xed4245,
+        icon: "🔴",
+        map: info.map,
+        maxPlayers: info.max_players,
+        onlineCount: info.players,
+        playerName: name,
+        text: "вышел",
+      });
     }
   } catch (error) {
     console.error("Ошибка запроса:", error);
@@ -147,9 +193,7 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  await interaction.editReply(
-    formatOnlinePlayersMessage(latestServerSnapshot.players, latestServerSnapshot.onlineCount, latestServerSnapshot.maxPlayers),
-  );
+  await interaction.editReply(formatOnlinePlayersMessage(latestServerSnapshot.players, latestServerSnapshot.onlineCount, latestServerSnapshot.maxPlayers));
 });
 
 client.login(DISCORD_TOKEN);
