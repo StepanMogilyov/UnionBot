@@ -1,7 +1,38 @@
-const query = require("source-server-query");
+const query = require("source-server-query") as SourceServerQuery;
 require("dotenv").config();
 
 import { Client, GatewayIntentBits } from "discord.js";
+
+interface ServerInfo {
+  header: string;
+  protocol: number;
+  name: string;
+  map: string;
+  folder: string;
+  game: string;
+  id: number;
+  players: number;
+  max_players: number;
+  bots: number;
+  server_type: string;
+  environment: string;
+  visibility: number;
+  vac: number;
+  version: string;
+  port: number;
+}
+
+interface ServerPlayer {
+  index: number;
+  name: string;
+  score: number;
+  duration: number;
+}
+
+interface SourceServerQuery {
+  info(host: string, port: number, timeout?: number): Promise<ServerInfo>;
+  players(host: string, port: number, timeout?: number): Promise<ServerPlayer[]>;
+}
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "" } = process.env;
 
@@ -38,7 +69,7 @@ async function checkServer() {
 
     const players = await query.players(HOST, Number(PORT), 5000);
 
-    const currentPlayers: string[] = players.map((player: any) => player.name).filter((name: string) => typeof name === "string" && name.trim().length > 0);
+    const currentPlayers: string[] = players.map((player) => player.name).filter((name: string) => name.trim().length > 0);
 
     console.log(`[${new Date().toLocaleTimeString()}] Players: ${info.players}/${info.max_players}`);
 
