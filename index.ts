@@ -1,7 +1,7 @@
 const query = require("source-server-query") as SourceServerQuery;
 require("dotenv").config();
 
-import { Client, GatewayIntentBits } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, GatewayIntentBits, MessageFlags, escapeMarkdown } from "discord.js";
 
 interface ServerInfo {
   header: string;
@@ -34,6 +34,12 @@ interface SourceServerQuery {
   players(host: string, port: number, timeout?: number): Promise<ServerPlayer[]>;
 }
 
+interface ServerSnapshot {
+  players: string[];
+  onlineCount: number;
+  maxPlayers: number;
+}
+
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "" } = process.env;
 
 const client = new Client({
@@ -45,6 +51,20 @@ const channelIds = CHANNEL_IDS.split(",")
   .filter(Boolean);
 
 let previousPlayers: string[] | null = null;
+let latestServerSnapshot: ServerSnapshot | null = null;
+
+const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
+
+function createOnlinePlayersButtonRow() {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(ONLINE_PLAYERS_BUTTON_ID).setLabel("TAB").setStyle(ButtonStyle.Secondary));
+}
+
+function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxPlayers: number) {
+  const onlinePlayers = players.map((name) => escapeMarkdown(name));
+  const playerList = onlinePlayers.length > 0 ? onlinePlayers.map((name) => `• ${name}`).join("\n") : "Сейчас никого нет онлайн.";
+
+  return `**Игроки онлайн — ${onlineCount}/${maxPlayers}**\n\n${playerList}`;
+}
 
 async function sendToDiscord(message: string) {
   for (const channelId of channelIds) {
@@ -56,7 +76,10 @@ async function sendToDiscord(message: string) {
         continue;
       }
 
-      await channel.send(message);
+      await channel.send({
+        content: message,
+        components: [createOnlinePlayersButtonRow()],
+      });
     } catch (error) {
       console.error(`Ошибка отправки в канал ${channelId}:`, error);
     }
@@ -70,6 +93,12 @@ async function checkServer() {
     const players = await query.players(HOST, Number(PORT), 5000);
 
     const currentPlayers: string[] = players.map((player) => player.name).filter((name: string) => name.trim().length > 0);
+
+    latestServerSnapshot = {
+      players: currentPlayers,
+      onlineCount: currentPlayers.length,
+      maxPlayers: info.max_players,
+    };
 
     // console.log(`[${new Date().toLocaleTimeString()}] Players: ${info.players}/${info.max_players}`);
 
@@ -104,6 +133,23 @@ client.once("ready", () => {
   checkServer();
 
   setInterval(checkServer, 60_000);
+});
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isButton() || interaction.customId !== ONLINE_PLAYERS_BUTTON_ID) {
+    return;
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (!latestServerSnapshot) {
+    await interaction.editReply("Список игроков ещё не загружен. Попробуйте нажать TAB чуть позже.");
+    return;
+  }
+
+  await interaction.editReply(
+    formatOnlinePlayersMessage(latestServerSnapshot.players, latestServerSnapshot.onlineCount, latestServerSnapshot.maxPlayers),
+  );
 });
 
 client.login(DISCORD_TOKEN);
