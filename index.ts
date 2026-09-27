@@ -48,7 +48,7 @@ interface PlayerEventBatchMessage {
   onlineCount: number;
 }
 
-const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "" } = process.env;
+const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000" } = process.env;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -62,6 +62,8 @@ let previousPlayers: string[] | null = null;
 let latestServerSnapshot: ServerSnapshot | null = null;
 
 const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
+const configuredServerQueryTimeout = Number(SERVER_QUERY_TIMEOUT_MS);
+const serverQueryTimeout = Number.isFinite(configuredServerQueryTimeout) ? configuredServerQueryTimeout : 10000;
 
 function createOnlinePlayersButtonRow() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -144,9 +146,9 @@ async function sendToDiscord(event: PlayerEventBatchMessage) {
 
 async function checkServer() {
   try {
-    const info = await query.info(HOST, Number(PORT), 5000);
+    const info = await query.info(HOST, Number(PORT), serverQueryTimeout);
 
-    const players = await query.players(HOST, Number(PORT), 5000);
+    const players = await query.players(HOST, Number(PORT), serverQueryTimeout);
 
     const currentPlayers: string[] = players.map((player) => player.name).filter((name: string) => name.trim().length > 0);
 
@@ -177,11 +179,12 @@ async function checkServer() {
       });
     }
   } catch (error) {
-    console.error("Ошибка запроса:", error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Сервер не ответил на запрос: ${message}`);
   }
 }
 
-client.once("ready", () => {
+client.once("clientReady", () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
 
   checkServer();
