@@ -91,7 +91,7 @@ async function checkServer() {
     }
 
     for (const name of leftPlayers) {
-      await sendToDiscord(`🔴 **${name}** зашёл на сервер. Онлайн: **${info.players}/${info.max_players}**. Карта: **${info.map}**`);
+      await sendToDiscord(`🔴 **${name}** вышел с сервера. Онлайн: **${info.players}/${info.max_players}**. Карта: **${info.map}**`);
     }
   } catch (error) {
     console.error("Ошибка запроса:", error);
