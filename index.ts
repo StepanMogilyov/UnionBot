@@ -40,14 +40,12 @@ interface ServerSnapshot {
   maxPlayers: number;
 }
 
-interface PlayerEventMessage {
-  color: number;
-  icon: string;
+interface PlayerEventBatchMessage {
+  joinedPlayers: string[];
+  leftPlayers: string[];
   map: string;
   maxPlayers: number;
   onlineCount: number;
-  playerName: string;
-  action: string;
 }
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "" } = process.env;
@@ -78,10 +76,22 @@ function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxP
   return `**Игроки онлайн — ${onlineCount}/${maxPlayers}**\n\n${playerList}`;
 }
 
-function createPlayerEventEmbed(event: PlayerEventMessage) {
-  return new EmbedBuilder()
-    .setColor(event.color)
-    .setDescription(`${event.icon} **${escapeMarkdown(event.playerName)}** ${event.action}.`)
+function formatPlayerEventList(players: string[]) {
+  return players.map((name) => `• **${escapeMarkdown(name)}**`).join("\n");
+}
+
+function getPlayerEventBatchColor(event: PlayerEventBatchMessage) {
+  if (event.joinedPlayers.length > 0 && event.leftPlayers.length > 0) {
+    return 0xfee75c;
+  }
+
+  return event.joinedPlayers.length > 0 ? 0x57f287 : 0xed4245;
+}
+
+function createPlayerEventEmbed(event: PlayerEventBatchMessage) {
+  const embed = new EmbedBuilder()
+    .setColor(getPlayerEventBatchColor(event))
+    .setDescription("Изменения активности игроков на сервере.")
     .addFields(
       {
         name: "Онлайн",
@@ -94,9 +104,25 @@ function createPlayerEventEmbed(event: PlayerEventMessage) {
         inline: true,
       },
     );
+
+  if (event.joinedPlayers.length > 0) {
+    embed.addFields({
+      name: "🟢 Зашли",
+      value: formatPlayerEventList(event.joinedPlayers),
+    });
+  }
+
+  if (event.leftPlayers.length > 0) {
+    embed.addFields({
+      name: "🔴 Вышли",
+      value: formatPlayerEventList(event.leftPlayers),
+    });
+  }
+
+  return embed;
 }
 
-async function sendToDiscord(event: PlayerEventMessage) {
+async function sendToDiscord(event: PlayerEventBatchMessage) {
   for (const channelId of channelIds) {
     try {
       const channel = await client.channels.fetch(channelId);
@@ -141,27 +167,13 @@ async function checkServer() {
 
     previousPlayers = currentPlayers;
 
-    for (const name of joinedPlayers) {
+    if (joinedPlayers.length > 0 || leftPlayers.length > 0) {
       await sendToDiscord({
-        color: 0x57f287,
-        icon: "🟢",
+        joinedPlayers,
+        leftPlayers,
         map: info.map,
         maxPlayers: info.max_players,
         onlineCount: info.players,
-        playerName: name,
-        action: "зашёл на сервер",
-      });
-    }
-
-    for (const name of leftPlayers) {
-      await sendToDiscord({
-        color: 0xed4245,
-        icon: "🔴",
-        map: info.map,
-        maxPlayers: info.max_players,
-        onlineCount: info.players,
-        playerName: name,
-        action: "вышел с сервера",
       });
     }
   } catch (error) {
