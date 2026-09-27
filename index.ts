@@ -68,12 +68,13 @@ async function checkServer() {
     const info = await query.info(HOST, Number(PORT), 5000);
 
     const players = await query.players(HOST, Number(PORT), 5000);
+    console.log('players: ', players[0]);
 
     const currentPlayers: string[] = players.map((player) => player.name).filter((name: string) => name.trim().length > 0);
 
-    console.log(`[${new Date().toLocaleTimeString()}] Players: ${info.players}/${info.max_players}`);
+    // console.log(`[${new Date().toLocaleTimeString()}] Players: ${info.players}/${info.max_players}`);
 
-    console.log("Players:", currentPlayers);
+    // console.log("Players:", currentPlayers);
 
     if (previousPlayers === null) {
       previousPlayers = currentPlayers;
