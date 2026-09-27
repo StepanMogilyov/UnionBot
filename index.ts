@@ -130,10 +130,6 @@ async function checkServer() {
       maxPlayers: info.max_players,
     };
 
-    // console.log(`[${new Date().toLocaleTimeString()}] Players: ${info.players}/${info.max_players}`);
-
-    // console.log("Players:", currentPlayers);
-
     if (previousPlayers === null) {
       previousPlayers = currentPlayers;
       return;
