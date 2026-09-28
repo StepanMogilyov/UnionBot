@@ -73,7 +73,7 @@ function createOnlinePlayersButtonRow() {
 
 function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxPlayers: number) {
   const onlinePlayers = players.map((name) => escapeMarkdown(name));
-  const playerList = onlinePlayers.length > 0 ? onlinePlayers.map((name) => `• ${name}`).join("\n") : "Сейчас никого нет онлайн.";
+  const playerList = onlinePlayers.length > 0 ? onlinePlayers.map((name) => `• ${name}`).join("\n") : "Сейчас никого нет";
 
   return `**Игроки онлайн — ${onlineCount}/${maxPlayers}**\n\n${playerList}`;
 }
@@ -93,7 +93,7 @@ function getPlayerEventBatchColor(event: PlayerEventBatchMessage) {
 function createPlayerEventEmbed(event: PlayerEventBatchMessage) {
   const embed = new EmbedBuilder()
     .setColor(getPlayerEventBatchColor(event))
-    .setDescription("Изменения активности игроков на сервере.")
+    .setDescription("Изменения активности на сервере")
     .addFields(
       {
         name: "Онлайн",
