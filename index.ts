@@ -59,6 +59,7 @@ const channelIds = CHANNEL_IDS.split(",")
   .filter(Boolean);
 
 let previousPlayers: string[] | null = null;
+let previousMap: string | null = null;
 let latestServerSnapshot: ServerSnapshot | null = null;
 
 const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
@@ -84,6 +85,10 @@ function formatPlayerEventList(players: string[]) {
 
 function getPlayerEventBatchColor(event: PlayerEventBatchMessage) {
   if (event.joinedPlayers.length > 0 && event.leftPlayers.length > 0) {
+    return 0xfee75c;
+  }
+
+  if (event.joinedPlayers.length === 0 && event.leftPlayers.length === 0) {
     return 0xfee75c;
   }
 
@@ -160,6 +165,7 @@ async function checkServer() {
 
     if (previousPlayers === null) {
       previousPlayers = currentPlayers;
+      previousMap = info.map;
       return;
     }
 
@@ -167,9 +173,12 @@ async function checkServer() {
 
     const leftPlayers = previousPlayers.filter((name) => !currentPlayers.includes(name));
 
-    previousPlayers = currentPlayers;
+    const mapChanged = previousMap !== info.map;
 
-    if (joinedPlayers.length > 0 || leftPlayers.length > 0) {
+    previousPlayers = currentPlayers;
+    previousMap = info.map;
+
+    if (joinedPlayers.length > 0 || leftPlayers.length > 0 || mapChanged) {
       await sendToDiscord({
         joinedPlayers,
         leftPlayers,
