@@ -38,6 +38,7 @@ interface ServerSnapshot {
   players: string[];
   onlineCount: number;
   maxPlayers: number;
+  map: string;
 }
 
 interface PlayerEventBatchMessage {
@@ -48,7 +49,12 @@ interface PlayerEventBatchMessage {
   onlineCount: number;
 }
 
-const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000" } = process.env;
+interface RenamableChannel {
+  name: string;
+  setName(name: string, reason?: string): Promise<unknown>;
+}
+
+const { DISCORD_TOKEN = "", CHANNEL_IDS = "", STATUS_CHANNEL_ID = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000" } = process.env;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -57,14 +63,76 @@ const client = new Client({
 const channelIds = CHANNEL_IDS.split(",")
   .map((id) => id.trim())
   .filter(Boolean);
+const statusChannelId = STATUS_CHANNEL_ID.trim() || channelIds[0] || "";
 
 let previousPlayers: string[] | null = null;
 let previousMap: string | null = null;
 let latestServerSnapshot: ServerSnapshot | null = null;
+let lastStatusChannelName: string | null = null;
 
 const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
+const SERVER_DISPLAY_NAME = "union";
+const MAX_CHANNEL_NAME_LENGTH = 100;
 const configuredServerQueryTimeout = Number(SERVER_QUERY_TIMEOUT_MS);
 const serverQueryTimeout = Number.isFinite(configuredServerQueryTimeout) ? configuredServerQueryTimeout : 10000;
+
+function isRenamableChannel(channel: unknown): channel is RenamableChannel {
+  if (typeof channel !== "object" || channel === null) {
+    return false;
+  }
+
+  const candidate = channel as Partial<RenamableChannel>;
+  return typeof candidate.name === "string" && typeof candidate.setName === "function";
+}
+
+function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
+  const statusEmoji = isOnline ? "🟢" : "🔴";
+
+  if (onlineCount === undefined || maxPlayers === undefined || map === undefined) {
+    return `${statusEmoji}・${SERVER_DISPLAY_NAME}・offline`;
+  }
+
+  const normalizedMap =
+    map
+      .trim()
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}_-]+/gu, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "") || "unknown";
+  const name = `${statusEmoji}・${SERVER_DISPLAY_NAME}・${onlineCount}⁄${maxPlayers}・${normalizedMap}`;
+
+  return Array.from(name).slice(0, MAX_CHANNEL_NAME_LENGTH).join("");
+}
+
+async function updateStatusChannel(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
+  if (!statusChannelId) {
+    return;
+  }
+
+  const desiredName = formatStatusChannelName(isOnline, onlineCount, maxPlayers, map);
+
+  if (desiredName === lastStatusChannelName) {
+    return;
+  }
+
+  try {
+    const channel = await client.channels.fetch(statusChannelId);
+
+    if (!isRenamableChannel(channel)) {
+      console.error(`Канал статуса ${statusChannelId} не найден или его нельзя переименовать`);
+      return;
+    }
+
+    if (channel.name !== desiredName) {
+      await channel.setName(desiredName, "Обновление статуса игрового сервера");
+      console.log(`Название канала статуса обновлено: ${desiredName}`);
+    }
+
+    lastStatusChannelName = desiredName;
+  } catch (error) {
+    console.error(`Ошибка обновления названия канала статуса ${statusChannelId}:`, error);
+  }
+}
 
 function createOnlinePlayersButtonRow() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -150,8 +218,12 @@ async function sendToDiscord(event: PlayerEventBatchMessage) {
 }
 
 async function checkServer() {
+  let serverResponded = false;
+
   try {
     const info = await query.info(HOST, Number(PORT), serverQueryTimeout);
+    serverResponded = true;
+    await updateStatusChannel(true, info.players, info.max_players, info.map);
 
     const players = await query.players(HOST, Number(PORT), serverQueryTimeout);
 
@@ -159,8 +231,9 @@ async function checkServer() {
 
     latestServerSnapshot = {
       players: currentPlayers,
-      onlineCount: currentPlayers.length,
+      onlineCount: info.players,
       maxPlayers: info.max_players,
+      map: info.map,
     };
 
     if (previousPlayers === null) {
@@ -190,6 +263,10 @@ async function checkServer() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`Сервер не ответил на запрос: ${message}`);
+
+    if (!serverResponded) {
+      await updateStatusChannel(false);
+    }
   }
 }
 
