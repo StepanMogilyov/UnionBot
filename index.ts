@@ -54,7 +54,7 @@ interface RenamableChannel {
   setName(name: string, reason?: string): Promise<unknown>;
 }
 
-const { DISCORD_TOKEN = "", CHANNEL_IDS = "", STATUS_CHANNEL_ID = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000" } = process.env;
+const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000" } = process.env;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -63,12 +63,11 @@ const client = new Client({
 const channelIds = CHANNEL_IDS.split(",")
   .map((id) => id.trim())
   .filter(Boolean);
-const statusChannelId = STATUS_CHANNEL_ID.trim() || channelIds[0] || "";
 
 let previousPlayers: string[] | null = null;
 let previousMap: string | null = null;
 let latestServerSnapshot: ServerSnapshot | null = null;
-let lastStatusChannelName: string | null = null;
+const lastStatusChannelNames = new Map<string, string>();
 
 const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
 const SERVER_DISPLAY_NAME = "union";
@@ -104,33 +103,35 @@ function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPla
   return Array.from(name).slice(0, MAX_CHANNEL_NAME_LENGTH).join("");
 }
 
-async function updateStatusChannel(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
-  if (!statusChannelId) {
+async function updateStatusChannels(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
+  if (channelIds.length === 0) {
     return;
   }
 
   const desiredName = formatStatusChannelName(isOnline, onlineCount, maxPlayers, map);
 
-  if (desiredName === lastStatusChannelName) {
-    return;
-  }
-
-  try {
-    const channel = await client.channels.fetch(statusChannelId);
-
-    if (!isRenamableChannel(channel)) {
-      console.error(`Канал статуса ${statusChannelId} не найден или его нельзя переименовать`);
-      return;
+  for (const channelId of channelIds) {
+    if (lastStatusChannelNames.get(channelId) === desiredName) {
+      continue;
     }
 
-    if (channel.name !== desiredName) {
-      await channel.setName(desiredName, "Обновление статуса игрового сервера");
-      console.log(`Название канала статуса обновлено: ${desiredName}`);
-    }
+    try {
+      const channel = await client.channels.fetch(channelId);
 
-    lastStatusChannelName = desiredName;
-  } catch (error) {
-    console.error(`Ошибка обновления названия канала статуса ${statusChannelId}:`, error);
+      if (!isRenamableChannel(channel)) {
+        console.error(`Канал ${channelId} не найден или его нельзя переименовать`);
+        continue;
+      }
+
+      if (channel.name !== desiredName) {
+        await channel.setName(desiredName, "Обновление статуса игрового сервера");
+        console.log(`Название канала ${channelId} обновлено: ${desiredName}`);
+      }
+
+      lastStatusChannelNames.set(channelId, desiredName);
+    } catch (error) {
+      console.error(`Ошибка обновления названия канала ${channelId}:`, error);
+    }
   }
 }
 
@@ -223,7 +224,7 @@ async function checkServer() {
   try {
     const info = await query.info(HOST, Number(PORT), serverQueryTimeout);
     serverResponded = true;
-    await updateStatusChannel(true, info.players, info.max_players, info.map);
+    await updateStatusChannels(true, info.players, info.max_players, info.map);
 
     const players = await query.players(HOST, Number(PORT), serverQueryTimeout);
 
@@ -265,7 +266,7 @@ async function checkServer() {
     console.warn(`Сервер не ответил на запрос: ${message}`);
 
     if (!serverResponded) {
-      await updateStatusChannel(false);
+      await updateStatusChannels(false);
     }
   }
 }
