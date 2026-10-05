@@ -85,7 +85,7 @@ function isRenamableChannel(channel: unknown): channel is RenamableChannel {
 }
 
 function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
-  const statusEmoji = isOnline ? "🟢" : "🔴";
+  const statusEmoji = isOnline && onlineCount !== undefined && onlineCount > 0 ? "🟢" : "🔴";
 
   if (onlineCount === undefined || maxPlayers === undefined || map === undefined) {
     return `${statusEmoji}・${SERVER_DISPLAY_NAME}・offline`;
