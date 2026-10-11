@@ -81,7 +81,6 @@ test("INFO 4 / PLAYER 6 is retried and all displays receive the validated six-pl
   assert.equal(result.event?.onlineCount, 6);
   assert.deepEqual(result.event?.joinedPlayers, ["e", "f"]);
   assert.match(formatOnlinePlayersMessage(result.snapshot), /Игроки онлайн — 6\/26/);
-  assert.match(formatOnlinePlayersMessage(result.snapshot), /Обновлено: <t:123456:T>/);
   assert.equal(query.infoReplies.length, 0);
 });
 

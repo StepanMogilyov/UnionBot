@@ -6,5 +6,5 @@ export function formatOnlinePlayersMessage(snapshot: ServerSnapshot) {
     ? snapshot.players.map((name) => `• ${name.trim() ? escapeMarkdown(name) : "Игрок без имени"}`).join("\n")
     : "Сейчас никого нет";
 
-  return `**Игроки онлайн — ${snapshot.onlineCount}/${snapshot.maxPlayers}**\n\n${playerList}\n\nОбновлено: <t:${Math.floor(snapshot.updatedAt / 1000)}:T>`;
+  return `**Игроки онлайн — ${snapshot.onlineCount}/${snapshot.maxPlayers}**\n\n${playerList}`;
 }
