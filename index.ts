@@ -2,87 +2,44 @@ const query = require("source-server-query") as SourceServerQuery;
 require("dotenv").config();
 
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, GatewayIntentBits, MessageFlags, escapeMarkdown } from "discord.js";
-
-interface ServerInfo {
-  header: string;
-  protocol: number;
-  name: string;
-  map: string;
-  folder: string;
-  game: string;
-  id: number;
-  players: number;
-  max_players: number;
-  bots: number;
-  server_type: string;
-  environment: string;
-  visibility: number;
-  vac: number;
-  version: string;
-  port: number;
-}
-
-interface ServerPlayer {
-  index: number;
-  name: string;
-  score: number;
-  duration: number;
-}
-
-interface SourceServerQuery {
-  info(host: string, port: number, timeout?: number): Promise<ServerInfo>;
-  players(host: string, port: number, timeout?: number): Promise<ServerPlayer[]>;
-}
-
-interface ServerSnapshot {
-  players: string[];
-  onlineCount: number;
-  maxPlayers: number;
-  map: string;
-}
-
-interface PlayerEventBatchMessage {
-  joinedPlayers: string[];
-  leftPlayers: string[];
-  map: string;
-  maxPlayers: number;
-  onlineCount: number;
-}
-
-interface RenamableChannel {
-  name: string;
-  setName(name: string, reason?: string): Promise<unknown>;
-}
+import { ServerMonitor, type PlayerEventBatchMessage, type ServerRefreshResult, type SourceServerQuery } from "./server-monitor";
+import { StatusChannelUpdater, isStatusChannelRateLimit } from "./status-channel-updater";
+import { formatOnlinePlayersMessage } from "./discord-messages";
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000" } = process.env;
-
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
-});
 
 const channelIds = CHANNEL_IDS.split(",")
   .map((id) => id.trim())
   .filter(Boolean);
 
-let previousPlayers: string[] | null = null;
-let previousMap: string | null = null;
-let latestServerSnapshot: ServerSnapshot | null = null;
-const lastStatusChannelNames = new Map<string, string>();
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds],
+  rest: {
+    // Retry renames ourselves so discord.js cannot replay an old count after a long wait.
+    rejectOnRateLimit: (limit) => isStatusChannelRateLimit(limit, channelIds),
+  },
+});
 
 const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
 const SERVER_DISPLAY_NAME = "union";
 const MAX_CHANNEL_NAME_LENGTH = 100;
 const configuredServerQueryTimeout = Number(SERVER_QUERY_TIMEOUT_MS);
-const serverQueryTimeout = Number.isFinite(configuredServerQueryTimeout) ? configuredServerQueryTimeout : 10000;
-
-function isRenamableChannel(channel: unknown): channel is RenamableChannel {
-  if (typeof channel !== "object" || channel === null) {
-    return false;
-  }
-
-  const candidate = channel as Partial<RenamableChannel>;
-  return typeof candidate.name === "string" && typeof candidate.setName === "function";
-}
+const serverQueryTimeout = Number.isFinite(configuredServerQueryTimeout) && configuredServerQueryTimeout > 0 ? configuredServerQueryTimeout : 10000;
+const statusChannelUpdater = new StatusChannelUpdater(
+  channelIds,
+  (id) => client.channels.fetch(id, { force: true }),
+  (id, error) => console.error(`Ошибка обновления названия канала ${id}:`, error),
+  (id, retryAt) => console.warn(
+    `Discord отложил переименование канала ${id} до ${new Date(retryAt).toISOString()}; после ожидания будет отправлен актуальный онлайн`,
+  ),
+);
+let eventDelivery = Promise.resolve();
+const serverMonitor = new ServerMonitor(query, {
+  host: HOST,
+  port: Number(PORT),
+  timeout: serverQueryTimeout,
+  onRefresh: publishServerRefresh,
+});
 
 function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
   const statusEmoji = isOnline && onlineCount !== undefined && onlineCount > 0 ? "🟢" : "🔴";
@@ -103,49 +60,10 @@ function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPla
   return Array.from(name).slice(0, MAX_CHANNEL_NAME_LENGTH).join("");
 }
 
-async function updateStatusChannels(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
-  if (channelIds.length === 0) {
-    return;
-  }
-
-  const desiredName = formatStatusChannelName(isOnline, onlineCount, maxPlayers, map);
-
-  for (const channelId of channelIds) {
-    if (lastStatusChannelNames.get(channelId) === desiredName) {
-      continue;
-    }
-
-    try {
-      const channel = await client.channels.fetch(channelId);
-
-      if (!isRenamableChannel(channel)) {
-        console.error(`Канал ${channelId} не найден или его нельзя переименовать`);
-        continue;
-      }
-
-      if (channel.name !== desiredName) {
-        await channel.setName(desiredName, "Обновление статуса игрового сервера");
-        console.log(`Название канала ${channelId} обновлено: ${desiredName}`);
-      }
-
-      lastStatusChannelNames.set(channelId, desiredName);
-    } catch (error) {
-      console.error(`Ошибка обновления названия канала ${channelId}:`, error);
-    }
-  }
-}
-
 function createOnlinePlayersButtonRow() {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder().setCustomId(ONLINE_PLAYERS_BUTTON_ID).setEmoji("⚔️").setLabel("TAB").setStyle(ButtonStyle.Primary),
   );
-}
-
-function formatOnlinePlayersMessage(players: string[], onlineCount: number, maxPlayers: number) {
-  const onlinePlayers = players.map((name) => escapeMarkdown(name));
-  const playerList = onlinePlayers.length > 0 ? onlinePlayers.map((name) => `• ${name}`).join("\n") : "Сейчас никого нет";
-
-  return `**Игроки онлайн — ${onlineCount}/${maxPlayers}**\n\n${playerList}`;
 }
 
 function formatPlayerEventList(players: string[]) {
@@ -164,10 +82,11 @@ function getPlayerEventBatchColor(event: PlayerEventBatchMessage) {
   return event.joinedPlayers.length > 0 ? 0x57f287 : 0xed4245;
 }
 
-function createPlayerEventEmbed(event: PlayerEventBatchMessage) {
+function createPlayerEventEmbed(event: PlayerEventBatchMessage, channelId: string) {
   const embed = new EmbedBuilder()
     .setColor(getPlayerEventBatchColor(event))
     .setDescription("Изменения активности на сервере")
+    .setTimestamp(event.updatedAt)
     .addFields(
       {
         name: "Онлайн",
@@ -195,6 +114,10 @@ function createPlayerEventEmbed(event: PlayerEventBatchMessage) {
     });
   }
 
+  if (statusChannelUpdater.isRateLimited(channelId)) {
+    embed.setFooter({ text: "Название канала обновится позже. Свежий онлайн — по кнопке TAB." });
+  }
+
   return embed;
 }
 
@@ -209,7 +132,7 @@ async function sendToDiscord(event: PlayerEventBatchMessage) {
       }
 
       await channel.send({
-        embeds: [createPlayerEventEmbed(event)],
+        embeds: [createPlayerEventEmbed(event, channelId)],
         components: [createOnlinePlayersButtonRow()],
       });
     } catch (error) {
@@ -218,65 +141,33 @@ async function sendToDiscord(event: PlayerEventBatchMessage) {
   }
 }
 
-async function checkServer() {
-  let serverResponded = false;
-
-  try {
-    const info = await query.info(HOST, Number(PORT), serverQueryTimeout);
-    serverResponded = true;
-    await updateStatusChannels(true, info.players, info.max_players, info.map);
-
-    const players = await query.players(HOST, Number(PORT), serverQueryTimeout);
-
-    const currentPlayers: string[] = players.map((player) => player.name).filter((name: string) => name.trim().length > 0);
-
-    latestServerSnapshot = {
-      players: currentPlayers,
-      onlineCount: info.players,
-      maxPlayers: info.max_players,
-      map: info.map,
-    };
-
-    if (previousPlayers === null) {
-      previousPlayers = currentPlayers;
-      previousMap = info.map;
-      return;
-    }
-
-    const joinedPlayers = currentPlayers.filter((name) => !previousPlayers!.includes(name));
-
-    const leftPlayers = previousPlayers.filter((name) => !currentPlayers.includes(name));
-
-    const mapChanged = previousMap !== info.map;
-
-    previousPlayers = currentPlayers;
-    previousMap = info.map;
-
-    if (joinedPlayers.length > 0 || leftPlayers.length > 0 || mapChanged) {
-      await sendToDiscord({
-        joinedPlayers,
-        leftPlayers,
-        map: info.map,
-        maxPlayers: info.max_players,
-        onlineCount: info.players,
-      });
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Сервер не ответил на запрос: ${message}`);
-
-    if (!serverResponded) {
-      await updateStatusChannels(false);
-    }
+function publishServerRefresh(result: ServerRefreshResult) {
+  if (result.status !== "online") {
+    console.warn(`Не удалось обновить данные сервера (${result.status}): ${result.error.message}`);
+    if (result.status === "offline") statusChannelUpdater.update(formatStatusChannelName(false));
+    return;
   }
+
+  const { snapshot, event } = result;
+  statusChannelUpdater.update(formatStatusChannelName(true, snapshot.onlineCount, snapshot.maxPlayers, snapshot.map));
+  if (event) {
+    // Preserve event order without making polling or TAB wait for Discord requests.
+    eventDelivery = eventDelivery.then(() => sendToDiscord(event)).catch((error) => {
+      console.error("Ошибка отправки изменений активности:", error);
+    });
+  }
+}
+
+function checkServer() {
+  return serverMonitor.refresh();
 }
 
 client.once("clientReady", () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
 
-  checkServer();
+  void checkServer().catch(console.error);
 
-  setInterval(checkServer, 60_000);
+  setInterval(() => void checkServer().catch(console.error), 60_000);
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -286,12 +177,19 @@ client.on("interactionCreate", async (interaction) => {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  if (!latestServerSnapshot) {
-    await interaction.editReply("Список игроков ещё не загружен. Попробуйте нажать TAB чуть позже.");
-    return;
-  }
+  try {
+    const result = await checkServer();
+    if (result.status !== "online") {
+      await interaction.editReply(result.status === "offline"
+        ? "Игровой сервер сейчас не отвечает. Попробуйте нажать TAB чуть позже."
+        : "Не удалось получить согласованный список игроков. Попробуйте нажать TAB чуть позже.");
+      return;
+    }
 
-  await interaction.editReply(formatOnlinePlayersMessage(latestServerSnapshot.players, latestServerSnapshot.onlineCount, latestServerSnapshot.maxPlayers));
+    await interaction.editReply(formatOnlinePlayersMessage(result.snapshot));
+  } catch (error) {
+    console.error("Ошибка обработки TAB:", error);
+  }
 });
 
 client.login(DISCORD_TOKEN);
