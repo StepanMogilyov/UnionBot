@@ -1,2 +1,5 @@
 node_modules/
 .env
+event-status.json
+event-status.json.tmp
+tests/.unionbot-test-*/
