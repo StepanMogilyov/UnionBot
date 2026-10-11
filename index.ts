@@ -114,10 +114,6 @@ function createPlayerEventEmbed(event: PlayerEventBatchMessage, channelId: strin
     });
   }
 
-  if (statusChannelUpdater.isRateLimited(channelId)) {
-    embed.setFooter({ text: "Название канала обновится позже. Свежий онлайн — по кнопке TAB." });
-  }
-
   return embed;
 }
 
