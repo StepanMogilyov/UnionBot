@@ -4,7 +4,7 @@ import type { PlayerEventBatchMessage, ServerSnapshot } from "./server-monitor";
 export const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
 export const ACTIVITY_DESCRIPTION = "Изменения активности на сервере";
 export const EVENT_CLOSED_NOTICE = "🔒 Сервер закрыт на ивент";
-export const EVENT_OPEN_NOTICE = "🔓 Сервер открыт";
+export const EVENT_OPEN_NOTICE = "🔓 Сервер доступен по текущему паролю";
 
 export function createEventStatusEmbed(eventClosed: boolean, snapshot?: ServerSnapshot) {
   const embed = new EmbedBuilder()
