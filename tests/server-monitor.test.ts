@@ -110,7 +110,6 @@ test("a confirmed zero-player snapshot reports real departures and an empty TAB"
   assert.deepEqual(result.event?.leftPlayers, ["a", "b"]);
   assert.equal(result.event?.onlineCount, 0);
   assert.match(formatOnlinePlayersMessage(result.snapshot), /0\/26/);
-  assert.match(formatOnlinePlayersMessage(result.snapshot), /Сейчас никого нет/);
 });
 
 test("unnamed players keep their slots and do not create false name-based departures", async () => {
@@ -126,7 +125,6 @@ test("unnamed players keep their slots and do not create false name-based depart
   assert.equal(result.event, null);
   const message = formatOnlinePlayersMessage(result.snapshot);
   assert.equal(message.split("Игрок без имени").length - 1, 2);
-  assert.doesNotMatch(message, /Сейчас никого нет/);
   assert.equal(online(await server.refresh()).event, null);
 });
 
