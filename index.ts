@@ -49,7 +49,7 @@ const serverMonitor = new ServerMonitor(query, {
 });
 
 function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
-  const statusEmoji = isOnline && onlineCount !== undefined && onlineCount > 0 ? "🟢" : "🔴";
+  const statusEmoji = !isOnline ? "🪦" : onlineCount !== undefined && onlineCount > 0 ? "🟢" : "🔴";
 
   if (onlineCount === undefined || maxPlayers === undefined || map === undefined) {
     return `${statusEmoji}・${SERVER_DISPLAY_NAME}・offline`;
