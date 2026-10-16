@@ -40,7 +40,8 @@ const statusChannelUpdater = new StatusChannelUpdater(
 const eventStatus = new EventStatusStore(join(__dirname, "event-status.json"));
 const activityNotifications = new ActivityNotifications(client, channelIds, eventStatus,
   (channelId, error) => console.error(`Ошибка отправки уведомления в канал ${channelId}:`, error),
-  checkServer);
+  checkServer,
+  (closed) => statusChannelUpdater.setEventClosed(closed));
 const serverMonitor = new ServerMonitor(query, {
   host: HOST,
   port: Number(PORT),
@@ -89,6 +90,9 @@ function checkServer() {
 
 client.once("clientReady", () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
+  void activityNotifications.restoreAutoOpen().catch((error) => {
+    console.error("Ошибка восстановления таймера открытия сервера:", error);
+  });
   void registerEventCommands(client, channelIds).catch(console.error);
 
   void checkServer().catch(console.error);

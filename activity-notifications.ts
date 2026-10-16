@@ -10,6 +10,7 @@ export interface EventNotificationResult {
 
 export class ActivityNotifications {
   private delivery: Promise<void> = Promise.resolve();
+  private autoOpenTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly client: Client,
@@ -17,6 +18,7 @@ export class ActivityNotifications {
     private readonly eventStatus: EventStatusStore,
     private readonly onError: (channelId: string, error: unknown) => void,
     private readonly refreshServer: () => Promise<ServerRefreshResult>,
+    private readonly onEventStatusChange?: (closed: boolean) => void,
   ) {}
 
   publish(event: PlayerEventBatchMessage) {
@@ -24,20 +26,59 @@ export class ActivityNotifications {
   }
 
   setEventClosed(closed: boolean): Promise<EventNotificationResult> {
+    return this.enqueue(() => this.applyEventClosed(closed));
+  }
+
+  restoreAutoOpen(): Promise<void> {
     return this.enqueue(async () => {
-      // Save first so a restart and all subsequent notices retain the requested status.
-      await this.eventStatus.setClosed(closed);
-      let snapshot: ServerSnapshot | undefined;
-      if (closed) {
-        try {
-          const result = await this.refreshServer();
-          if (result.status === "online") snapshot = result.snapshot;
-        } catch (error) {
-          console.error("Не удалось получить данные сервера для уведомления об ивенте:", error);
-        }
+      // Existing active events from older versions get a deadline once, on upgrade.
+      if (this.eventStatus.closed && this.eventStatus.autoOpenAt === undefined) {
+        await this.eventStatus.setClosed(true);
       }
-      return this.sendToChannels(createEventStatusEmbed(closed, snapshot));
+      this.scheduleAutoOpen();
+      this.onEventStatusChange?.(this.eventStatus.closed);
     });
+  }
+
+  private async applyEventClosed(closed: boolean): Promise<EventNotificationResult> {
+    // Save first so a restart and all subsequent notices retain the requested status.
+    await this.eventStatus.setClosed(closed);
+    this.scheduleAutoOpen();
+    this.onEventStatusChange?.(closed);
+    let snapshot: ServerSnapshot | undefined;
+    if (closed) {
+      try {
+        const result = await this.refreshServer();
+        if (result.status === "online") snapshot = result.snapshot;
+      } catch (error) {
+        console.error("Не удалось получить данные сервера для уведомления об ивенте:", error);
+      }
+    }
+    return this.sendToChannels(createEventStatusEmbed(closed, snapshot));
+  }
+
+  private scheduleAutoOpen(retryDelayMs = 0) {
+    if (this.autoOpenTimer) clearTimeout(this.autoOpenTimer);
+    this.autoOpenTimer = null;
+    const deadline = this.eventStatus.autoOpenAt;
+    if (!this.eventStatus.closed || deadline === undefined) return;
+    const delay = Math.min(2_147_483_647, Math.max(0, retryDelayMs, deadline - Date.now()));
+    this.autoOpenTimer = setTimeout(() => {
+      this.autoOpenTimer = null;
+      void this.enqueue(async () => {
+        // Recheck inside the delivery queue: a manual stop or a newer start may have overtaken this timer.
+        if (!this.eventStatus.closed || this.eventStatus.autoOpenAt !== deadline) return;
+        if (Date.now() < deadline) {
+          this.scheduleAutoOpen();
+          return;
+        }
+        await this.applyEventClosed(false);
+      }).catch((error) => {
+        console.error("Ошибка автоматического открытия сервера:", error);
+        this.scheduleAutoOpen(60_000);
+      });
+    }, delay);
+    this.autoOpenTimer.unref?.();
   }
 
   private async fetchChannel(channelId: string) {

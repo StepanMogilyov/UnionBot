@@ -189,3 +189,54 @@ test("custom rate-limit handling applies only to edits of configured status chan
   assert.equal(isStatusChannelRateLimit({ ...limit, method: "GET" }, ["channel"]), false);
   assert.equal(isStatusChannelRateLimit({ ...limit, method: "POST", route: "/channels/:id/messages" }, ["channel"]), false);
 });
+
+test("the event lock follows current online data and disappears without waiting for another poll", async () => {
+  const channel = { name: "old", async setName(name: string) { this.name = name; } };
+  const updater = new StatusChannelUpdater(["channel"], async () => channel, (_id, error) => { throw error; });
+  updater.setEventClosed(true); // A restored event may be known before the first game-server response.
+  updater.update("🪦・union・offline");
+  await nextTurn();
+  assert.equal(channel.name, "🔒・union・offline");
+  updater.update("🟢・union・2⁄26・new-map");
+  await nextTurn();
+  assert.equal(channel.name, "🔒・union・2⁄26・new-map");
+  updater.setEventClosed(true);
+  await nextTurn();
+  assert.equal(channel.name, "🔒・union・2⁄26・new-map");
+  updater.setEventClosed(false);
+  await nextTurn();
+  assert.equal(channel.name, "🟢・union・2⁄26・new-map");
+
+  const longName = "🟢・union・2⁄26・" + "я".repeat(100);
+  updater.setEventClosed(true);
+  updater.update(longName);
+  await nextTurn();
+  assert.match(channel.name, /^🔒・union・2⁄26・/);
+  assert.equal(Array.from(channel.name).length, 100);
+  updater.setEventClosed(false);
+  await nextTurn();
+  assert.equal(channel.name, Array.from(longName).slice(0, 100).join(""));
+});
+
+test("a delayed rename uses the latest event lock state after a rate limit", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
+  const names: string[] = [];
+  const channel = {
+    name: "old",
+    async setName(name: string) {
+      names.push(name);
+      if (names.length === 1) throw rateLimit(60_000);
+      this.name = name;
+    },
+  };
+  const updater = new StatusChannelUpdater(["channel"], async () => channel, (_id, error) => { throw error; });
+  updater.setEventClosed(true);
+  updater.update("🟢・union・2⁄26・old-map");
+  await nextTurn();
+  updater.update("🟢・union・3⁄26・new-map");
+  updater.setEventClosed(false);
+  context.mock.timers.tick(60_000);
+  await nextTurn();
+  assert.deepEqual(names, ["🔒・union・2⁄26・old-map", "🟢・union・3⁄26・new-map"]);
+  assert.equal(channel.name, "🟢・union・3⁄26・new-map");
+});

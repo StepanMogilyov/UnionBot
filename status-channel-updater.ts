@@ -16,6 +16,8 @@ export function isStatusChannelRateLimit(limit: RateLimitData, channelIds: strin
 }
 
 export class StatusChannelUpdater {
+  private latestName: string | undefined;
+  private eventClosed = false;
   private readonly desiredNames = new Map<string, string>();
   private readonly appliedNames = new Map<string, string>();
   private readonly updating = new Set<string>();
@@ -30,10 +32,17 @@ export class StatusChannelUpdater {
   ) {}
 
   update(desiredName: string): void {
+    this.latestName = desiredName;
+    const name = Array.from(this.eventClosed ? `🔒・${desiredName.replace(/^[^・]+・/u, "")}` : desiredName).slice(0, 100).join("");
     for (const channelId of this.channelIds) {
-      this.desiredNames.set(channelId, desiredName);
+      this.desiredNames.set(channelId, name);
       this.start(channelId);
     }
+  }
+
+  setEventClosed(closed: boolean): void {
+    this.eventClosed = closed;
+    if (this.latestName !== undefined) this.update(this.latestName);
   }
 
   isRateLimited(channelId: string) {
