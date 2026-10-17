@@ -30,32 +30,45 @@ test("only configured roles can change event status, including in cached and unc
     assert.deepEqual(changes, [true, false]);
     assert.deepEqual(start.deferrals, [MessageFlags.Ephemeral]);
     assert.deepEqual(stop.deferrals, [MessageFlags.Ephemeral]);
-    assert.match(start.edits[0], /сервер закрыт на ивент/);
-    assert.match(stop.edits[0], /сервер открыт/);
+    assert.deepEqual(start.edits, ["Статус сохранён: сервер закрыт на ивент"]);
+    assert.deepEqual(stop.edits, ["Статус сохранён: ивент завершён, сервер открыт"]);
   }
 });
 
 test("missing roles, an empty configuration and direct messages never invoke the update", async () => {
   const cases = [
-    { fake: fakeInteraction(["other"]), roles: ["allowed"], text: /нет роли/ },
-    { fake: fakeInteraction({ cache: new Collection() }), roles: ["allowed"], text: /нет роли/ },
-    { fake: fakeInteraction(["allowed"]), roles: [], text: /EVENT_MANAGER_ROLE_IDS/ },
-    { fake: fakeInteraction(["allowed"], "start", null), roles: ["allowed"], text: /только на Discord-сервере/ },
+    { fake: fakeInteraction(["other"]), roles: ["allowed"], text: "У вас нет роли для управления отметкой ивента" },
+    { fake: fakeInteraction({ cache: new Collection() }), roles: ["allowed"], text: "У вас нет роли для управления отметкой ивента" },
+    { fake: fakeInteraction(["allowed"]), roles: [], text: "Управление ивентом не настроено: укажите EVENT_MANAGER_ROLE_IDS в .env" },
+    { fake: fakeInteraction(["allowed"], "start", null), roles: ["allowed"], text: "Эта команда доступна только на Discord-сервере" },
   ];
   for (const { fake, roles, text } of cases) {
     await handleEventCommand(fake.interaction, roles, async () => { assert.fail("unauthorized status change"); });
     assert.equal(fake.replies.length, 1);
     assert.equal(fake.replies[0].flags, MessageFlags.Ephemeral);
-    assert.match(fake.replies[0].content, text);
+    assert.equal(fake.replies[0].content, text);
     assert.deepEqual(fake.deferrals, []);
   }
 });
 
-test("partial notification failures are reported while confirming the saved status", async () => {
-  const fake = fakeInteraction(["allowed"]);
-  await handleEventCommand(fake.interaction, ["allowed"], async () => ({ sent: 1, failed: 1 }));
-  assert.match(fake.edits[0], /Статус сохранён/);
-  assert.match(fake.edits[0], /Не удалось отправить/);
+test("partial notification failures still confirm the saved status without a trailing period", async () => {
+  for (const [subcommand, reply] of [
+    ["start", "Статус сохранён: сервер закрыт на ивент"],
+    ["stop", "Статус сохранён: ивент завершён, сервер открыт"],
+  ]) {
+    const fake = fakeInteraction(["allowed"], subcommand);
+    await handleEventCommand(fake.interaction, ["allowed"], async () => ({ sent: 1, failed: 1 }));
+    assert.deepEqual(fake.edits, [reply]);
+  }
+});
+
+test("unknown subcommands reply with usage without a trailing period and never invoke the update", async () => {
+  const fake = fakeInteraction(["allowed"], "unknown");
+  assert.equal(await handleEventCommand(fake.interaction, ["allowed"], async () => {
+    assert.fail("unknown subcommand must not change event status");
+  }), true);
+  assert.deepEqual(fake.replies, [{ content: "Используйте /event start или /event stop", flags: MessageFlags.Ephemeral }]);
+  assert.deepEqual(fake.deferrals, []);
 });
 
 test("other commands are left to their own handlers", async () => {
@@ -69,8 +82,7 @@ test("failed persistence does not report that the server was closed", async (con
   const fake = fakeInteraction(["allowed"]);
   context.mock.method(console, "error", () => {});
   await handleEventCommand(fake.interaction, ["allowed"], async () => { throw new Error("disk unavailable"); });
-  assert.match(fake.edits[0], /Не удалось сохранить статус/);
-  assert.doesNotMatch(fake.edits[0], /Статус сохранён/);
+  assert.deepEqual(fake.edits, ["Не удалось сохранить статус ивента. Попробуйте ещё раз"]);
 });
 
 test("stop completes its deferred response after sending the opening notice", async (context) => {
@@ -78,7 +90,7 @@ test("stop completes its deferred response after sending the opening notice", as
   const order: string[] = [];
   context.mock.method(fake.interaction, "editReply", async (content: string) => {
     order.push("reply");
-    assert.match(content, /сервер открыт/);
+    assert.equal(content, "Статус сохранён: ивент завершён, сервер открыт");
   });
   await handleEventCommand(fake.interaction, ["allowed"], async (closed) => {
     assert.equal(closed, false);

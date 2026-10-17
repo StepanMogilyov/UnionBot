@@ -31,22 +31,22 @@ export async function registerEventCommands(client: Client, channelIds: string[]
 export async function handleEventCommand(interaction: ChatInputCommandInteraction, roleIds: string[], setEventClosed: (closed: boolean) => Promise<EventNotificationResult>) {
   if (interaction.commandName !== "event") return false;
   if (!interaction.guildId || !interaction.member) {
-    await interaction.reply({ content: "Эта команда доступна только на Discord-сервере.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "Эта команда доступна только на Discord-сервере", flags: MessageFlags.Ephemeral });
     return true;
   }
   if (roleIds.length === 0) {
-    await interaction.reply({ content: "Управление ивентом не настроено: укажите EVENT_MANAGER_ROLE_IDS в .env.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "Управление ивентом не настроено: укажите EVENT_MANAGER_ROLE_IDS в .env", flags: MessageFlags.Ephemeral });
     return true;
   }
   const roles = interaction.member.roles;
   const allowed = roleIds.some((id) => (Array.isArray(roles) ? roles.includes(id) : roles.cache.has(id)));
   if (!allowed) {
-    await interaction.reply({ content: "У вас нет роли для управления отметкой ивента.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "У вас нет роли для управления отметкой ивента", flags: MessageFlags.Ephemeral });
     return true;
   }
   const subcommand = interaction.options.getSubcommand();
   if (subcommand !== "start" && subcommand !== "stop") {
-    await interaction.reply({ content: "Используйте /event start или /event stop.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: "Используйте /event start или /event stop", flags: MessageFlags.Ephemeral });
     return true;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -55,10 +55,10 @@ export async function handleEventCommand(interaction: ChatInputCommandInteractio
     await setEventClosed(subcommand === "start");
   } catch (error) {
     console.error("Ошибка изменения статуса ивента:", error);
-    await completeEventReply(interaction, "Не удалось сохранить статус ивента. Попробуйте ещё раз.");
+    await completeEventReply(interaction, "Не удалось сохранить статус ивента. Попробуйте ещё раз");
     return true;
   }
-  const lines = [subcommand === "start" ? "Статус сохранён: сервер закрыт на ивент." : "Статус сохранён: ивент завершён, сервер открыт."];
+  const lines = [subcommand === "start" ? "Статус сохранён: сервер закрыт на ивент" : "Статус сохранён: ивент завершён, сервер открыт"];
 
   await completeEventReply(interaction, lines.join("\n"));
   return true;
