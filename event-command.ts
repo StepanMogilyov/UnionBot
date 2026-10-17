@@ -28,11 +28,7 @@ export async function registerEventCommands(client: Client, channelIds: string[]
   }
 }
 
-export async function handleEventCommand(
-  interaction: ChatInputCommandInteraction,
-  roleIds: string[],
-  setEventClosed: (closed: boolean) => Promise<EventNotificationResult>,
-) {
+export async function handleEventCommand(interaction: ChatInputCommandInteraction, roleIds: string[], setEventClosed: (closed: boolean) => Promise<EventNotificationResult>) {
   if (interaction.commandName !== "event") return false;
   if (!interaction.guildId || !interaction.member) {
     await interaction.reply({ content: "Эта команда доступна только на Discord-сервере.", flags: MessageFlags.Ephemeral });
@@ -43,7 +39,7 @@ export async function handleEventCommand(
     return true;
   }
   const roles = interaction.member.roles;
-  const allowed = roleIds.some((id) => Array.isArray(roles) ? roles.includes(id) : roles.cache.has(id));
+  const allowed = roleIds.some((id) => (Array.isArray(roles) ? roles.includes(id) : roles.cache.has(id)));
   if (!allowed) {
     await interaction.reply({ content: "У вас нет роли для управления отметкой ивента.", flags: MessageFlags.Ephemeral });
     return true;
@@ -54,18 +50,16 @@ export async function handleEventCommand(
     return true;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  let result: EventNotificationResult;
+
   try {
-    result = await setEventClosed(subcommand === "start");
+    await setEventClosed(subcommand === "start");
   } catch (error) {
     console.error("Ошибка изменения статуса ивента:", error);
     await completeEventReply(interaction, "Не удалось сохранить статус ивента. Попробуйте ещё раз.");
     return true;
   }
-  const lines = [subcommand === "start"
-    ? "Статус сохранён: сервер закрыт на ивент."
-    : "Статус сохранён: ивент завершён, сервер открыт."];
-  if (result.failed > 0) lines.push(`Не удалось отправить уведомления в ${result.failed} каналах; проверьте доступ бота и повторите команду.`);
+  const lines = [subcommand === "start" ? "Статус сохранён: сервер закрыт на ивент." : "Статус сохранён: ивент завершён, сервер открыт."];
+
   await completeEventReply(interaction, lines.join("\n"));
   return true;
 }
