@@ -2,8 +2,8 @@ import { strict as assert } from "node:assert";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { test } from "node:test";
 import { RateLimitError } from "discord.js";
-import { ServerMonitor } from "../server-monitor";
-import { StatusChannelUpdater, isStatusChannelRateLimit } from "../status-channel-updater";
+import { ServerMonitor } from "../src/server-monitor";
+import { StatusChannelUpdater, isStatusChannelRateLimit } from "../src/status-channel-updater";
 
 function rateLimit(retryAfter: number, sublimitTimeout = retryAfter) {
   return new RateLimitError({

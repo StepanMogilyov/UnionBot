@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { formatOnlinePlayersMessage } from "../discord-messages";
-import { ServerMonitor, type ServerInfo, type ServerPlayer, type ServerRefreshResult, type SourceServerQuery } from "../server-monitor";
+import { formatOnlinePlayersMessage } from "../src/discord-messages";
+import { ServerMonitor, type ServerInfo, type ServerPlayer, type ServerRefreshResult, type SourceServerQuery } from "../src/server-monitor";
 
 function info(players: number, map = "FFA_Duelyard"): ServerInfo {
   return { header: "I", players, max_players: 26, map };

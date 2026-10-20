@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { EmbedBuilder, type Client, type Embed } from "discord.js";
-import { ActivityNotifications } from "../activity-notifications";
-import { createOnlinePlayersButtonRow, createPlayerEventEmbed, EVENT_CLOSED_NOTICE, EVENT_OPEN_NOTICE } from "../discord-messages";
-import { EVENT_AUTO_OPEN_DELAY_MS, EventStatusStore } from "../event-status";
-import { ServerMonitor, type PlayerEventBatchMessage, type ServerRefreshResult } from "../server-monitor";
-import { StatusChannelUpdater } from "../status-channel-updater";
+import { ActivityNotifications } from "../src/activity-notifications";
+import { createOnlinePlayersButtonRow, createPlayerEventEmbed, EVENT_CLOSED_NOTICE, EVENT_OPEN_NOTICE } from "../src/discord-messages";
+import { EVENT_AUTO_OPEN_DELAY_MS, EventStatusStore } from "../src/event-status";
+import { ServerMonitor, type PlayerEventBatchMessage, type ServerRefreshResult } from "../src/server-monitor";
+import { StatusChannelUpdater } from "../src/status-channel-updater";
 import { createTestDirectory } from "./test-directory";
 
 const event: PlayerEventBatchMessage = {

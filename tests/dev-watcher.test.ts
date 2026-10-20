@@ -13,7 +13,7 @@ test("runtime event state changes cannot restart dev, while source edits still c
   const config = JSON.parse(await readFile(join(root, "nodemon.json"), "utf8")) as { ignore: string[] };
   const files = [
     "event-status.json", "event-status.json.tmp", "tests/.unionbot-test-example/event-status.json",
-    "index.ts", "event-command.ts", "package.json",
+    "index.ts", "src/event-command.ts", "package.json",
   ].map((file) => join(root, file));
   const rules = match.rulesToMonitor([root], config.ignore, { dirs: [] });
   assert.deepEqual(

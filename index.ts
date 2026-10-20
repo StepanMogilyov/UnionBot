@@ -3,12 +3,12 @@ require("dotenv").config();
 
 import { join } from "node:path";
 import { Client, GatewayIntentBits, MessageFlags } from "discord.js";
-import { ServerMonitor, type ServerRefreshResult, type SourceServerQuery } from "./server-monitor";
-import { StatusChannelUpdater, isStatusChannelRateLimit } from "./status-channel-updater";
-import { ONLINE_PLAYERS_BUTTON_ID, formatOnlinePlayersMessage } from "./discord-messages";
-import { EventStatusStore } from "./event-status";
-import { ActivityNotifications } from "./activity-notifications";
-import { handleEventCommand, registerEventCommands } from "./event-command";
+import { ServerMonitor, type ServerRefreshResult, type SourceServerQuery } from "./src/server-monitor";
+import { StatusChannelUpdater, isStatusChannelRateLimit } from "./src/status-channel-updater";
+import { ONLINE_PLAYERS_BUTTON_ID, formatOnlinePlayersMessage } from "./src/discord-messages";
+import { EventStatusStore } from "./src/event-status";
+import { ActivityNotifications } from "./src/activity-notifications";
+import { handleEventCommand, registerEventCommands } from "./src/event-command";
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000", EVENT_MANAGER_ROLE_IDS = "", SERVER_DISPLAY_NAME = "" } = process.env;
 

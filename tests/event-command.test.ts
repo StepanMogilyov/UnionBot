@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { ApplicationCommandType, Collection, MessageFlags, type ChatInputCommandInteraction, type Client } from "discord.js";
-import { createEventCommand, handleEventCommand, registerEventCommands } from "../event-command";
+import { createEventCommand, handleEventCommand, registerEventCommands } from "../src/event-command";
 
 function fakeInteraction(roles: string[] | { cache: Collection<string, unknown> }, subcommand = "close", guildId: string | null = "guild") {
   const replies: { content: string; flags: number }[] = [];
