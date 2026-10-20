@@ -1,12 +1,12 @@
-import { MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction, type Client } from "discord.js";
+import { ApplicationCommandType, MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction, type Client } from "discord.js";
 import type { EventNotificationResult } from "./activity-notifications";
 
 export function createEventCommand() {
   return new SlashCommandBuilder()
-    .setName("event")
+    .setName("server")
     .setDescription("Управление отметкой о закрытии игрового сервера на ивент")
-    .addSubcommand((command) => command.setName("start").setDescription("Сообщить о закрытии сервера на ивент"))
-    .addSubcommand((command) => command.setName("stop").setDescription("Сообщить о завершении ивента и открытии сервера"));
+    .addSubcommand((command) => command.setName("close").setDescription("Сообщить о закрытии сервера на ивент"))
+    .addSubcommand((command) => command.setName("open").setDescription("Сообщить о завершении ивента и открытии сервера"));
 }
 
 export async function registerEventCommands(client: Client, channelIds: string[]) {
@@ -21,15 +21,23 @@ export async function registerEventCommands(client: Client, channelIds: string[]
   }
   for (const guildId of guildIds) {
     try {
-      await client.application!.commands.create(createEventCommand().toJSON(), guildId);
+      const commands = client.application!.commands;
+      await commands.create(createEventCommand().toJSON(), guildId);
+      // Retire the old slash command only after its replacement is registered.
+      const registered = await commands.fetch({ guildId });
+      for (const command of registered.values()) {
+        if (command.name === "event" && command.type === ApplicationCommandType.ChatInput) {
+          await commands.delete(command.id, guildId);
+        }
+      }
     } catch (error) {
-      console.error(`Ошибка регистрации /event на Discord-сервере ${guildId}:`, error);
+      console.error(`Ошибка регистрации /server на Discord-сервере ${guildId}:`, error);
     }
   }
 }
 
 export async function handleEventCommand(interaction: ChatInputCommandInteraction, roleIds: string[], setEventClosed: (closed: boolean) => Promise<EventNotificationResult>) {
-  if (interaction.commandName !== "event") return false;
+  if (interaction.commandName !== "server") return false;
   if (!interaction.guildId || !interaction.member) {
     await interaction.reply({ content: "Эта команда доступна только на Discord-сервере", flags: MessageFlags.Ephemeral });
     return true;
@@ -45,20 +53,20 @@ export async function handleEventCommand(interaction: ChatInputCommandInteractio
     return true;
   }
   const subcommand = interaction.options.getSubcommand();
-  if (subcommand !== "start" && subcommand !== "stop") {
-    await interaction.reply({ content: "Используйте /event start или /event stop", flags: MessageFlags.Ephemeral });
+  if (subcommand !== "close" && subcommand !== "open") {
+    await interaction.reply({ content: "Используйте /server close или /server open", flags: MessageFlags.Ephemeral });
     return true;
   }
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
-    await setEventClosed(subcommand === "start");
+    await setEventClosed(subcommand === "close");
   } catch (error) {
     console.error("Ошибка изменения статуса ивента:", error);
     await completeEventReply(interaction, "Не удалось сохранить статус ивента. Попробуйте ещё раз");
     return true;
   }
-  const lines = [subcommand === "start" ? "Статус сохранён: сервер закрыт на ивент" : "Статус сохранён: ивент завершён, сервер открыт"];
+  const lines = [subcommand === "close" ? "Статус сохранён: сервер закрыт на ивент" : "Статус сохранён: ивент завершён, сервер открыт"];
 
   await completeEventReply(interaction, lines.join("\n"));
   return true;
