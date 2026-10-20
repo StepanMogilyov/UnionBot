@@ -46,13 +46,11 @@ export class ActivityNotifications {
     this.scheduleAutoOpen();
     this.onEventStatusChange?.(closed);
     let snapshot: ServerSnapshot | undefined;
-    if (closed) {
-      try {
-        const result = await this.refreshServer();
-        if (result.status === "online") snapshot = result.snapshot;
-      } catch (error) {
-        console.error("Не удалось получить данные сервера для уведомления об ивенте:", error);
-      }
+    try {
+      const result = await this.refreshServer();
+      if (result.status === "online") snapshot = result.snapshot;
+    } catch (error) {
+      console.error("Не удалось получить данные сервера для уведомления об ивенте:", error);
     }
     return this.sendToChannels(createEventStatusEmbed(closed, snapshot));
   }

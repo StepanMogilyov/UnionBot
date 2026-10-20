@@ -11,7 +11,7 @@ export function createEventStatusEmbed(eventClosed: boolean, snapshot?: ServerSn
     .setColor(0x57f287)
     .setDescription(eventClosed ? formatActivityDescription(true) : EVENT_OPEN_NOTICE)
     .setTimestamp();
-  return eventClosed ? addServerFields(embed, snapshot) : embed;
+  return addServerFields(embed, snapshot);
 }
 
 export function formatActivityDescription(eventClosed: boolean) {

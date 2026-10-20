@@ -90,7 +90,10 @@ test("every start and stop sends a new notice with TAB and preserves previous me
     { name: "Карта", value: "**FFA\\_Duelyard**", inline: true },
   ]);
   assert.equal(channel.sent[3].embeds[0].description, EVENT_OPEN_NOTICE);
-  assert.deepEqual(channel.sent[3].embeds[0].fields, []);
+  assert.deepEqual(channel.sent[3].embeds[0].fields, [
+    { name: "Онлайн", value: "**2/26**", inline: true },
+    { name: "Карта", value: "**FFA\\_Duelyard**", inline: true },
+  ]);
   for (const notice of channel.sent) {
     assert.equal(notice.edits, 0);
     assert.deepEqual(notice.components, components);
@@ -115,7 +118,7 @@ test("new notices use the persisted status after a restart and can be reopened",
   assert.equal(restored.closed, true);
   const client = { user: { id: "bot" }, channels: { async fetch() { return channel; } } } as unknown as Client;
   const restarted = new ActivityNotifications(client, ["one"], restored, (_id, error) => errors.push(error),
-    async () => { assert.fail("Opening the server must not require a server query"); });
+    async () => ({ status: "online", snapshot: event, event: null }));
   await restarted.setEventClosed(false);
   await restarted.publish(event);
   assert.match(channel.sent[0].embeds[0].description!, /Сервер закрыт/);
@@ -163,7 +166,7 @@ test("a command during a slow send announces the status before later activity no
   assert.deepEqual(errors, []);
 });
 
-test("start uses fresh online and map data rather than the previous activity notification", async (context) => {
+test("start and stop use fresh server data rather than the previous activity notification", async (context) => {
   const { channels, notifications } = await setup(context);
   const channel = fakeChannel();
   channels.set("one", channel);
@@ -181,23 +184,30 @@ test("start uses fresh online and map data rather than the previous activity not
   assert.match(channel.sent[2].embeds[0].description!, /🔒 Сервер закрыт на ивент/);
   assert.equal(channel.sent[2].embeds[0].fields[0].value, "**3/26**");
   assert.equal(channel.sent[2].embeds[0].fields[2].name, "🟢 Зашли");
+  await notices.setEventClosed(false);
+  assert.equal(channel.sent[3].embeds[0].description, EVENT_OPEN_NOTICE);
+  assert.deepEqual(channel.sent[3].embeds[0].fields, [
+    { name: "Онлайн", value: "**4/32**", inline: true },
+    { name: "Карта", value: "**current\\_map**", inline: true },
+  ]);
 });
 
-test("start still saves and announces closure when server data is unavailable", async (context) => {
+test("start and stop still save and announce the status when server data is unavailable", async (context) => {
   const { channels, store, notifications } = await setup(context);
   const channel = fakeChannel();
   channels.set("one", channel);
   for (const status of ["offline", "unavailable"] as const) {
     const notices = notifications(["one"], async () => ({ status, error: new Error("Server unavailable") }));
-    assert.deepEqual(await notices.setEventClosed(true), { sent: 1, failed: 0 });
-  }
-  assert.equal(store.closed, true);
-  for (const message of channel.sent) {
-    assert.match(message.embeds[0].description!, /Сервер закрыт на ивент/);
-    assert.deepEqual(message.embeds[0].fields, [
-      { name: "Онлайн", value: "Нет данных", inline: true },
-      { name: "Карта", value: "Нет данных", inline: true },
-    ]);
+    for (const closed of [true, false]) {
+      assert.deepEqual(await notices.setEventClosed(closed), { sent: 1, failed: 0 });
+      assert.equal(store.closed, closed);
+      const embed = channel.sent.at(-1)!.embeds[0];
+      assert.equal(embed.description, closed ? `Изменения активности на сервере\n${EVENT_CLOSED_NOTICE}` : EVENT_OPEN_NOTICE);
+      assert.deepEqual(embed.fields, [
+        { name: "Онлайн", value: "Нет данных", inline: true },
+        { name: "Карта", value: "Нет данных", inline: true },
+      ]);
+    }
   }
 });
 
@@ -252,10 +262,13 @@ test("an event opens automatically after four hours and sends the existing openi
   assert.equal(store.autoOpenAt, undefined);
   const opening = channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE);
   assert.equal(opening.length, 1);
-  assert.deepEqual(opening[0].embeds[0].fields, []);
+  assert.deepEqual(opening[0].embeds[0].fields, [
+    { name: "Онлайн", value: "**2/26**", inline: true },
+    { name: "Карта", value: "**FFA\\_Duelyard**", inline: true },
+  ]);
   assert.deepEqual(opening[0].components, [createOnlinePlayersButtonRow().toJSON()]);
   assert.doesNotMatch(channel.sent.at(-1)!.embeds[0].description!, /Сервер закрыт/);
-  assert.equal(queries, 1);
+  assert.equal(queries, 2);
   context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS);
   await notices.publish(event);
   assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
@@ -324,7 +337,7 @@ test("restart restores the remaining time, and overdue events open after reconne
     await restored.load();
     assert.equal(restored.autoOpenAt, deadline);
     const restarted = new ActivityNotifications(client, ["one"], restored, (_id, error) => errors.push(error),
-      async () => { assert.fail("Automatic opening must not query the game server"); });
+      async () => ({ status: "online", snapshot: event, event: null }));
     await restarted.restoreAutoOpen();
     const before = channel.sent.length;
     if (downtime < EVENT_AUTO_OPEN_DELAY_MS) {
