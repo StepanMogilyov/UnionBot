@@ -10,7 +10,7 @@ import { EventStatusStore } from "./event-status";
 import { ActivityNotifications } from "./activity-notifications";
 import { handleEventCommand, registerEventCommands } from "./event-command";
 
-const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000", EVENT_MANAGER_ROLE_IDS = "" } = process.env;
+const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000", EVENT_MANAGER_ROLE_IDS = "", SERVER_DISPLAY_NAME = "" } = process.env;
 
 const channelIds = CHANNEL_IDS.split(",")
   .map((id) => id.trim())
@@ -25,7 +25,6 @@ const client = new Client({
   },
 });
 
-const SERVER_DISPLAY_NAME = "union";
 const MAX_CHANNEL_NAME_LENGTH = 100;
 const configuredServerQueryTimeout = Number(SERVER_QUERY_TIMEOUT_MS);
 const serverQueryTimeout = Number.isFinite(configuredServerQueryTimeout) && configuredServerQueryTimeout > 0 ? configuredServerQueryTimeout : 10000;
