@@ -25,9 +25,10 @@ export function createOnlinePlayersButtonRow() {
 }
 
 export function createPlayerEventEmbed(event: PlayerEventBatchMessage, eventClosed = false) {
-  const color = event.joinedPlayers.length > 0 && event.leftPlayers.length === 0
-    ? 0x57f287
-    : event.leftPlayers.length > 0 && event.joinedPlayers.length === 0 ? 0xed4245 : 0xfee75c;
+  let color = event.onlineCount > 0 ? 0x57f287 : 0xed4245;
+  if (!event.mapChanged && event.leftPlayers.length > 0) {
+    color = event.joinedPlayers.length > 0 ? 0xfee75c : 0xed4245;
+  }
   const embed = new EmbedBuilder()
     .setColor(color)
     .setDescription(formatActivityDescription(eventClosed))

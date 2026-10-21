@@ -33,6 +33,7 @@ export interface ServerSnapshot {
 export interface PlayerEventBatchMessage extends ServerSnapshot {
   joinedPlayers: string[];
   leftPlayers: string[];
+  mapChanged?: boolean;
 }
 
 export type ServerRefreshResult =
@@ -138,7 +139,7 @@ export class ServerMonitor {
             const joinedPlayers = namesComplete ? addedNames(snapshot.players, previous.players) : [];
             const leftPlayers = namesComplete ? addedNames(previous.players, snapshot.players) : [];
             if (joinedPlayers.length > 0 || leftPlayers.length > 0 || previous.map !== snapshot.map || previous.onlineCount !== snapshot.onlineCount) {
-              event = { ...snapshot, joinedPlayers, leftPlayers };
+              event = { ...snapshot, joinedPlayers, leftPlayers, mapChanged: previous.map !== snapshot.map };
             }
           }
 
