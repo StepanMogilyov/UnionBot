@@ -167,7 +167,7 @@ test("concurrent poll and TAB requests share one refresh and publish it exactly 
   assert.equal(published, 2);
 });
 
-test("PLAYER timeout is unavailable, INFO timeout is offline, and neither resets player history", async () => {
+test("PLAYER and isolated INFO timeouts are unavailable and neither resets player history", async () => {
   const query = new FakeQuery();
   query.sample(1, ["a"]);
   query.infoReplies.push(info(1));
@@ -178,9 +178,68 @@ test("PLAYER timeout is unavailable, INFO timeout is offline, and neither resets
   await server.refresh();
 
   assert.equal((await server.refresh()).status, "unavailable");
-  assert.equal((await server.refresh()).status, "offline");
+  assert.equal((await server.refresh()).status, "unavailable");
   assert.equal(query.closed, 2);
   assert.equal(online(await server.refresh()).event, null);
+});
+
+test("offline requires three consecutive unanswered refreshes, including at startup, and recovery resets the count", async () => {
+  const query = new FakeQuery();
+  for (let i = 0; i < 4; i++) query.infoReplies.push(new Error("INFO timed out"));
+  query.sample(1, ["a"]);
+  for (let i = 0; i < 3; i++) query.infoReplies.push(new Error("INFO timed out"));
+  query.sample(1, ["b"]);
+  query.infoReplies.push(new Error("INFO timed out"));
+  const server = monitor(query);
+
+  for (const expected of ["unavailable", "unavailable", "offline", "offline"]) {
+    assert.equal((await server.refresh()).status, expected);
+  }
+  assert.equal(online(await server.refresh()).event, null);
+  for (const expected of ["unavailable", "unavailable", "offline"]) {
+    assert.equal((await server.refresh()).status, expected);
+  }
+  const recovered = online(await server.refresh());
+  assert.deepEqual(recovered.event?.joinedPlayers, ["b"]);
+  assert.deepEqual(recovered.event?.leftPlayers, ["a"]);
+  assert.equal((await server.refresh()).status, "unavailable");
+  assert.equal(query.closed, 8);
+});
+
+test("an INFO response resets offline confirmation even when PLAYER subsequently times out", async () => {
+  const query = new FakeQuery();
+  for (let i = 0; i < 2; i++) query.infoReplies.push(new Error("INFO timed out"));
+  query.infoReplies.push(info(1));
+  query.playerReplies.push(new Error("PLAYER timed out"));
+  for (let i = 0; i < 3; i++) query.infoReplies.push(new Error("INFO timed out"));
+  const server = monitor(query);
+
+  for (const expected of ["unavailable", "unavailable", "unavailable", "unavailable", "unavailable", "offline"]) {
+    assert.equal((await server.refresh()).status, expected);
+  }
+});
+
+test("concurrent poll and TAB failures count as a single unanswered refresh", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let infoCalls = 0;
+  const outcomes: ServerRefreshResult[] = [];
+  const server = monitor({
+    async info() { infoCalls++; await gate; throw new Error("INFO timed out"); },
+    async players() { assert.fail("unexpected PLAYER request"); },
+  }, (result) => outcomes.push(result));
+
+  const poll = server.refresh();
+  const tab = server.refresh();
+  assert.equal(poll, tab);
+  release();
+  const [pollResult, tabResult] = await Promise.all([poll, tab]);
+  assert.equal(pollResult, tabResult);
+  assert.equal(pollResult.status, "unavailable");
+  assert.equal(infoCalls, 1);
+  assert.equal(outcomes.length, 1);
+  assert.equal((await server.refresh()).status, "unavailable");
+  assert.equal((await server.refresh()).status, "offline");
 });
 
 test("an unexpected packet header is rejected without querying players", async () => {

@@ -143,6 +143,68 @@ test("a Discord rate limit retries only the latest online count at the server-pr
   assert.equal(updater.isRateLimited("channel"), false);
 });
 
+test("transient timeouts preserve the online channel name and confirmed outages recover after a Discord rate limit", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
+  const names: string[] = [];
+  const channel = {
+    name: "old",
+    async setName(name: string) {
+      names.push(name);
+      if (names.length === 3) throw rateLimit(60_000);
+      this.name = name;
+    },
+  };
+  const updater = new StatusChannelUpdater(["channel"], async () => channel, (_id, error) => { throw error; });
+  let responding = true;
+  let count = 1;
+  const server = new ServerMonitor({
+    async info() {
+      if (!responding) throw new Error("INFO timed out");
+      return { header: "I", players: count, max_players: 26, map: "FFA_Duelyard" };
+    },
+    async players() { return Array.from({ length: count }, (_, index) => ({ index, name: `player ${index}`, score: 0, duration: 1 })); },
+  }, {
+    host: "127.0.0.1", port: 27015, timeout: 1000,
+    onRefresh(result) {
+      if (result.status === "online") updater.update(`${result.snapshot.onlineCount}/26`);
+      else if (result.status === "offline") updater.update("offline");
+    },
+  });
+
+  await server.refresh();
+  await nextTurn();
+  responding = false;
+  await server.refresh();
+  await server.refresh();
+  await nextTurn();
+  assert.deepEqual(names, ["1/26"]);
+  assert.equal(channel.name, "1/26");
+
+  responding = true;
+  await server.refresh();
+  responding = false;
+  await server.refresh();
+  await server.refresh();
+  await server.refresh();
+  await nextTurn();
+  assert.equal(channel.name, "offline");
+
+  responding = true;
+  count = 2;
+  await server.refresh();
+  await nextTurn();
+  assert.equal(updater.isRateLimited("channel"), true);
+  count = 3;
+  const tab = await server.refresh();
+  assert.equal(tab.status, "online");
+  if (tab.status === "online") assert.equal(tab.snapshot.onlineCount, 3);
+  context.mock.timers.tick(60_000);
+  await nextTurn();
+
+  assert.deepEqual(names, ["1/26", "offline", "2/26", "3/26"]);
+  assert.equal(channel.name, "3/26");
+});
+
 test("a second rate limit reschedules the latest count without waiting for another game-server poll", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
   const names: string[] = [];

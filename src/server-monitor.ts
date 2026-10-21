@@ -1,5 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+const OFFLINE_CONFIRMATION_FAILURES = 3;
+
 export interface ServerInfo {
   header: string;
   players: number;
@@ -74,6 +76,7 @@ function addedNames(current: string[], previous: string[]) {
 export class ServerMonitor {
   private previousSnapshot: ServerSnapshot | null = null;
   private inFlight: Promise<ServerRefreshResult> | null = null;
+  private unansweredRefreshes = 0;
 
   constructor(private readonly query: SourceServerQuery, private readonly options: ServerMonitorOptions) {}
 
@@ -126,6 +129,7 @@ export class ServerMonitor {
           };
           const previous = this.previousSnapshot;
           this.previousSnapshot = snapshot;
+          this.unansweredRefreshes = 0;
 
           let event: PlayerEventBatchMessage | null = null;
           if (previous) {
@@ -148,8 +152,11 @@ export class ServerMonitor {
     } catch (error) {
       // The library leaves its socket open on timeouts; discard it before the next refresh.
       this.query.close?.();
+      // A lost response must not consume Discord's rename quota with a false offline status.
+      // Any response proves reachability, even if the full player snapshot is unavailable.
+      this.unansweredRefreshes = serverResponded ? 0 : this.unansweredRefreshes + 1;
       return {
-        status: serverResponded ? "unavailable" : "offline",
+        status: this.unansweredRefreshes >= OFFLINE_CONFIRMATION_FAILURES ? "offline" : "unavailable",
         error: error instanceof Error ? error : new Error(String(error)),
       };
     }

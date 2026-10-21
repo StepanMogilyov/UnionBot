@@ -119,7 +119,7 @@ client.on("interactionCreate", async (interaction) => {
     if (result.status !== "online") {
       await interaction.editReply(result.status === "offline"
         ? "Игровой сервер сейчас не отвечает. Попробуйте нажать TAB чуть позже"
-        : "Не удалось получить согласованный список игроков. Попробуйте нажать TAB чуть позже");
+        : "Не удалось обновить список игроков. Попробуйте нажать TAB чуть позже");
       return;
     }
 
