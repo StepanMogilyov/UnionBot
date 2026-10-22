@@ -25,7 +25,7 @@ export function createOnlinePlayersButtonRow() {
 }
 
 export function createPlayerEventEmbed(event: PlayerEventBatchMessage, eventClosed = false) {
-  let color = event.onlineCount > 0 ? 0x57f287 : 0xed4245;
+  let color = event.onlineCount > 0 ? 0x57f287 : 0xfee75c;
   if (!event.mapChanged && event.leftPlayers.length > 0) {
     color = event.joinedPlayers.length > 0 ? 0xfee75c : 0xed4245;
   }
