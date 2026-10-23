@@ -80,6 +80,9 @@ test("other commands are left to their own handlers", async () => {
     assert.equal(await handleEventCommand(fake.interaction, ["allowed"], async () => { assert.fail(); }), false);
     assert.deepEqual(fake.replies, []);
   }
+  const restart = fakeInteraction(["allowed"], "restart");
+  assert.equal(await handleEventCommand(restart.interaction, ["allowed"], async () => { assert.fail(); }), false);
+  assert.deepEqual(restart.replies, []);
 });
 
 test("failed persistence does not report that the server was closed", async (context) => {
@@ -147,7 +150,7 @@ test("server commands replace legacy event commands once per guild and preserve 
   await registerEventCommands(client, ["one", "two", "three", "dm"]);
   assert.deepEqual(registrations.map(({ guildId }) => guildId), ["guild-1", "guild-2"]);
   assert.equal(registrations[0].data.name, "server");
-  assert.deepEqual(registrations[0].data.options?.map((option) => option.name), ["close", "open"]);
+  assert.deepEqual(registrations[0].data.options?.map((option) => option.name), ["close", "open", "restart"]);
   await registerEventCommands(client, ["one", "two", "three", "dm"]);
   assert.deepEqual(registrations.map(({ guildId }) => guildId), ["guild-1", "guild-2", "guild-1", "guild-2"]);
   assert.deepEqual(deletions, [{ id: "legacy", guildId: "guild-1" }, { id: "legacy", guildId: "guild-2" }]);

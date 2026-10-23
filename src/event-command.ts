@@ -4,9 +4,10 @@ import type { EventNotificationResult } from "./activity-notifications";
 export function createEventCommand() {
   return new SlashCommandBuilder()
     .setName("server")
-    .setDescription("Управление отметкой о закрытии игрового сервера на ивент")
+    .setDescription("Управление игровым сервером и отметкой ивента")
     .addSubcommand((command) => command.setName("close").setDescription("Сообщить о закрытии сервера на ивент"))
-    .addSubcommand((command) => command.setName("open").setDescription("Сообщить о завершении ивента и открытии сервера"));
+    .addSubcommand((command) => command.setName("open").setDescription("Сообщить о завершении ивента и открытии сервера"))
+    .addSubcommand((command) => command.setName("restart").setDescription("Перезапустить игровой сервер"));
 }
 
 export async function registerEventCommands(client: Client, channelIds: string[]) {
@@ -38,6 +39,7 @@ export async function registerEventCommands(client: Client, channelIds: string[]
 
 export async function handleEventCommand(interaction: ChatInputCommandInteraction, roleIds: string[], setEventClosed: (closed: boolean) => Promise<EventNotificationResult>) {
   if (interaction.commandName !== "server") return false;
+  if (interaction.options.getSubcommand() === "restart") return false;
   if (!interaction.guildId || !interaction.member) {
     await interaction.reply({ content: "Эта команда доступна только на Discord-сервере", flags: MessageFlags.Ephemeral });
     return true;

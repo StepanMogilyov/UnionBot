@@ -9,6 +9,8 @@ import { ONLINE_PLAYERS_BUTTON_ID, formatOnlinePlayersMessage } from "./src/disc
 import { EventStatusStore } from "./src/event-status";
 import { ActivityNotifications } from "./src/activity-notifications";
 import { handleEventCommand, registerEventCommands } from "./src/event-command";
+import { NitradoClient } from "./src/nitrado-client";
+import { ServerRestartCommand } from "./src/server-restart-command";
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000", EVENT_MANAGER_ROLE_IDS = "", SERVER_DISPLAY_NAME = "" } = process.env;
 
@@ -16,6 +18,7 @@ const channelIds = CHANNEL_IDS.split(",")
   .map((id) => id.trim())
   .filter(Boolean);
 const eventManagerRoleIds = EVENT_MANAGER_ROLE_IDS.split(",").map((id) => id.trim()).filter(Boolean);
+const { NITRADO_API_TOKEN = "", NITRADO_SERVICE_ID = "" } = process.env;
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -46,6 +49,11 @@ const serverMonitor = new ServerMonitor(query, {
   port: Number(PORT),
   timeout: serverQueryTimeout,
   onRefresh: publishServerRefresh,
+});
+const serverRestartCommand = new ServerRestartCommand({
+  roleIds: eventManagerRoleIds,
+  nitrado: new NitradoClient({ token: NITRADO_API_TOKEN, serviceId: NITRADO_SERVICE_ID }),
+  refresh: checkServer,
 });
 
 function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
@@ -102,9 +110,10 @@ client.once("clientReady", () => {
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isChatInputCommand()) {
     try {
+      if (await serverRestartCommand.handle(interaction)) return;
       await handleEventCommand(interaction, eventManagerRoleIds, (closed) => activityNotifications.setEventClosed(closed));
     } catch (error) {
-      console.error("Ошибка обработки команды ивента:", error);
+      console.error("Ошибка обработки команды сервера:", error);
     }
     return;
   }
