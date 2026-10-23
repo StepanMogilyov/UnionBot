@@ -8,6 +8,7 @@ import type { ServerRefreshResult } from "./server-monitor";
 import type { NitradoClient } from "./nitrado-client";
 
 interface RestartOptions {
+  commandName: string;
   roleIds: string[];
   nitrado: Pick<NitradoClient, "configured" | "getStatus" | "restart">;
   refresh: () => Promise<ServerRefreshResult>;
@@ -25,7 +26,7 @@ export class ServerRestartCommand {
   constructor(private readonly options: RestartOptions) {}
 
   async handle(interaction: ChatInputCommandInteraction): Promise<boolean> {
-    if (interaction.commandName !== "server" || interaction.options.getSubcommand() !== "restart") return false;
+    if (interaction.commandName !== this.options.commandName || interaction.options.getSubcommand() !== "restart") return false;
     let refusal: string | undefined;
     if (!interaction.guildId || !interaction.member) {
       refusal = "Эта команда доступна только на Discord-сервере";
@@ -72,7 +73,7 @@ export class ServerRestartCommand {
       await interaction.editReply({ content: "Отправляю запрос на перезапуск сервера…", components: [] });
       // Do not retry a POST, even on timeout: Nitrado may already have accepted it.
       restartRequested = true;
-      await this.options.nitrado.restart(`UnionBot /server restart; Discord user ${interaction.user.id}; guild ${interaction.guildId}`);
+      await this.options.nitrado.restart(`UnionBot /${this.options.commandName} restart; Discord user ${interaction.user.id}; guild ${interaction.guildId}`);
       await interaction.editReply("Перезапуск...");
       await this.waitForStartup(interaction, status === "stopped");
     } catch (error) {

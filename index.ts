@@ -8,11 +8,12 @@ import { StatusChannelUpdater, isStatusChannelRateLimit } from "./src/status-cha
 import { ONLINE_PLAYERS_BUTTON_ID, formatOnlinePlayersMessage } from "./src/discord-messages";
 import { EventStatusStore } from "./src/event-status";
 import { ActivityNotifications } from "./src/activity-notifications";
-import { handleEventCommand, registerEventCommands } from "./src/event-command";
+import { getServerCommandName, handleEventCommand, registerEventCommands } from "./src/event-command";
 import { NitradoClient } from "./src/nitrado-client";
 import { ServerRestartCommand } from "./src/server-restart-command";
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000", EVENT_MANAGER_ROLE_IDS = "", SERVER_DISPLAY_NAME = "" } = process.env;
+const serverCommandName = getServerCommandName(SERVER_DISPLAY_NAME);
 
 const channelIds = CHANNEL_IDS.split(",")
   .map((id) => id.trim())
@@ -51,6 +52,7 @@ const serverMonitor = new ServerMonitor(query, {
   onRefresh: publishServerRefresh,
 });
 const serverRestartCommand = new ServerRestartCommand({
+  commandName: serverCommandName,
   roleIds: eventManagerRoleIds,
   nitrado: new NitradoClient({ token: NITRADO_API_TOKEN, serviceId: NITRADO_SERVICE_ID }),
   refresh: checkServer,
@@ -100,7 +102,7 @@ client.once("clientReady", () => {
   void activityNotifications.restoreAutoOpen().catch((error) => {
     console.error("Ошибка восстановления таймера открытия сервера:", error);
   });
-  void registerEventCommands(client, channelIds).catch(console.error);
+  void registerEventCommands(client, channelIds, serverCommandName).catch(console.error);
 
   void checkServer().catch(console.error);
 
@@ -111,7 +113,7 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.isChatInputCommand()) {
     try {
       if (await serverRestartCommand.handle(interaction)) return;
-      await handleEventCommand(interaction, eventManagerRoleIds, (closed) => activityNotifications.setEventClosed(closed));
+      await handleEventCommand(interaction, eventManagerRoleIds, (closed) => activityNotifications.setEventClosed(closed), serverCommandName);
     } catch (error) {
       console.error("Ошибка обработки команды сервера:", error);
     }

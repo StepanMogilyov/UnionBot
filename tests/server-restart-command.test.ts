@@ -11,6 +11,7 @@ type Roles = string[] | { cache: Collection<string, unknown> };
 type ConfirmationOptions = { filter: (button: ButtonInteraction) => boolean; time: number };
 
 function fakeInteraction(options: {
+  commandName?: string;
   roles?: Roles;
   buttonRoles?: Roles;
   guildId?: string | null;
@@ -25,7 +26,7 @@ function fakeInteraction(options: {
   const roles = options.roles ?? ["manager"];
   const guildId = options.guildId === undefined ? "guild" : options.guildId;
   const interaction = {
-    commandName: "server", guildId, member: guildId ? { roles } : null,
+    commandName: options.commandName ?? "union", guildId, member: guildId ? { roles } : null,
     user: { id: "author" }, deferred: false, replied: false,
     options: { getSubcommand: () => "restart" },
     async reply(reply: { content: string; flags: number }) { replies.push(reply); },
@@ -64,6 +65,7 @@ function online(count: number): ServerRefreshResult {
 }
 
 function setup(options: {
+  commandName?: string;
   count?: number;
   refresh?: () => Promise<ServerRefreshResult>;
   statuses?: (string | Error)[];
@@ -76,6 +78,7 @@ function setup(options: {
   let statusRequests = 0;
   let now = 1000;
   const command = new ServerRestartCommand({
+    commandName: options.commandName ?? "union",
     roleIds: options.roleIds ?? ["manager"],
     nitrado: {
       configured: options.configured ?? true,
@@ -110,6 +113,14 @@ test("an empty server can restart again immediately after a completed restart", 
     assert.match(state.restarts[attempt - 1], /Discord user author; guild guild/);
     assert.equal(fake.edits.at(-1), "Сервер запущен");
   }
+});
+
+test("restart uses the configured command name in routing and Nitrado's audit message", async () => {
+  const state = setup({ commandName: "elbrus" });
+  const fake = fakeInteraction({ commandName: "elbrus" });
+  assert.equal(await state.command.handle(fake.interaction), true);
+  assert.deepEqual(state.restarts, ["UnionBot /elbrus restart; Discord user author; guild guild"]);
+  assert.equal(fake.edits.at(-1), "Сервер запущен");
 });
 
 test("an occupied server never restarts until its author presses confirm", async () => {
@@ -243,7 +254,7 @@ test("status polling failures preserve the accepted restart and do not repeat PO
   const state = setup({ statuses: ["started", "started", new Error("API unavailable")] });
   const fake = fakeInteraction();
   await state.command.handle(fake.interaction);
-  assert.match(fake.content, /Nitrado принял запрос/);
+  assert.match(fake.content, /Перезапуск\.\.\./);
   assert.match(fake.content, /Не удалось подтвердить завершение/);
   assert.equal(state.restarts.length, 1);
 });
@@ -268,7 +279,7 @@ test("Discord reply failures after POST cannot retry restart or leave the lock h
 
 test("other slash commands and server subcommands remain with their existing handlers", async () => {
   const state = setup();
-  for (const [commandName, subcommand] of [["other", "restart"], ["server", "open"], ["server", "close"]]) {
+  for (const [commandName, subcommand] of [["other", "restart"], ["server", "restart"], ["event", "restart"], ["union", "open"], ["union", "close"]]) {
     const fake = fakeInteraction();
     Object.defineProperty(fake.interaction, "commandName", { value: commandName });
     Object.defineProperty(fake.interaction.options, "getSubcommand", { value: () => subcommand });
