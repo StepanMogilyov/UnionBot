@@ -6,11 +6,12 @@ import {
 } from "discord.js";
 import type { ServerRefreshResult } from "./server-monitor";
 import type { NitradoClient } from "./nitrado-client";
+import { isSameMapRotation, MAX_MAP_ROTATION_LENGTH, SERVER_MAPS } from "./server-maps";
 
 interface RestartOptions {
   commandName: string;
   roleIds: string[];
-  nitrado: Pick<NitradoClient, "configured" | "getStatus" | "restart">;
+  nitrado: Pick<NitradoClient, "configured" | "getStatus" | "getMapRotation" | "restart" | "setMapRotation">;
   refresh: () => Promise<ServerRefreshResult>;
   now?: () => number;
   wait?: (ms: number) => Promise<unknown>;
@@ -20,13 +21,23 @@ const CONFIRMATION_TIMEOUT_MS = 60_000;
 const STATUS_INTERVAL_MS = 5_000;
 const STATUS_ATTEMPTS = 60;
 
+function formatSavedRotation(maps: readonly string[]) {
+  return maps.length === 1 ? `Карта ${maps[0]} сохранена` : `Ротация сохранена: ${maps.join(" → ")}`;
+}
+
 export class ServerRestartCommand {
   private busy = false;
 
   constructor(private readonly options: RestartOptions) {}
 
   async handle(interaction: ChatInputCommandInteraction): Promise<boolean> {
-    if (interaction.commandName !== this.options.commandName || interaction.options.getSubcommand() !== "restart") return false;
+    if (interaction.commandName !== this.options.commandName) return false;
+    const group = interaction.options.getSubcommandGroup(false);
+    const subcommand = interaction.options.getSubcommand();
+    const isRestart = !group && subcommand === "restart";
+    const isSetMap = group === "set" && subcommand === "map";
+    const isSetPreset = group === "set" && (subcommand === "lts" || subcommand === "duelyard");
+    if (!isRestart && !isSetMap && !isSetPreset) return false;
     let refusal: string | undefined;
     if (!interaction.guildId || !interaction.member) {
       refusal = "Эта команда доступна только на Discord-сервере";
@@ -44,9 +55,27 @@ export class ServerRestartCommand {
       return true;
     }
 
+    let maps: string[] | undefined;
+    if (isSetPreset) {
+      maps = subcommand === "duelyard" ? ["FFA_Duelyard"] : SERVER_MAPS.filter((name) => name.startsWith("LTS_"));
+    } else if (isSetMap) {
+      const input = interaction.options.getString("maps", true).trim();
+      const names = input.split(/\s+/);
+      if (input.length > MAX_MAP_ROTATION_LENGTH || names.some((name) => !SERVER_MAPS.includes(name))) {
+        await interaction.reply({
+          content: `Укажите полные названия карт из списка через пробел, например TO_Coxwell TO_Lionspire TO_RudhelmSiege. Максимум ${MAX_MAP_ROTATION_LENGTH} символов. Полный список: /${this.options.commandName} show maps. Все карты LTS: /${this.options.commandName} set lts`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+      maps = names;
+    }
+
     // One game server is shared by every configured Discord channel and guild.
     this.busy = true;
     let restartRequested = false;
+    let rotationSaveRequested = false;
+    let rotationSaved = false;
     try {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const initialStatus = await this.options.nitrado.getStatus();
@@ -54,6 +83,7 @@ export class ServerRestartCommand {
         await interaction.editReply("Сервер уже перезапускается или занят другой операцией Nitrado. Проверьте панель хостинга");
         return true;
       }
+      if (maps && await this.rejectUnchangedRotation(interaction, maps)) return true;
 
       let onlineCount: number | undefined;
       try {
@@ -62,26 +92,47 @@ export class ServerRestartCommand {
       } catch {
         // Missing or inconsistent query data must never be treated as an empty server.
       }
-      if (onlineCount !== 0 && !await this.confirm(interaction, onlineCount)) return true;
+      if (onlineCount !== 0 && !await this.confirm(interaction, onlineCount, maps)) return true;
 
       // The service may have been restarted from the hosting panel while the prompt was open.
-      const status = await this.options.nitrado.getStatus();
+      let status = await this.options.nitrado.getStatus();
       if (status !== "started" && status !== "stopped") {
         await interaction.editReply({ content: "Сервер уже перезапускается или занят другой операцией Nitrado. Повторный запрос не отправлен", components: [] });
         return true;
       }
+      if (maps) {
+        // The hosting panel may have applied this rotation while confirmation was open.
+        if (await this.rejectUnchangedRotation(interaction, maps)) return true;
+        await interaction.editReply({ content: `Сохраняю ротацию: ${maps.join(" → ")}…`, components: [] });
+        rotationSaveRequested = true;
+        await this.options.nitrado.setMapRotation(maps);
+        rotationSaved = true;
+        status = await this.options.nitrado.getStatus();
+        if (status !== "started" && status !== "stopped") {
+          await interaction.editReply(`${formatSavedRotation(maps)}. Сервер уже занят другой операцией Nitrado. Запрос на перезапуск не отправлен; проверьте панель хостинга`);
+          return true;
+        }
+      }
       await interaction.editReply({ content: "Отправляю запрос на перезапуск сервера…", components: [] });
       // Do not retry a POST, even on timeout: Nitrado may already have accepted it.
       restartRequested = true;
-      await this.options.nitrado.restart(`UnionBot /${this.options.commandName} restart; Discord user ${interaction.user.id}; guild ${interaction.guildId}`);
+      const command = isRestart ? "restart" : isSetMap ? `set map ${maps!.join(" ")}` : `set ${subcommand}`;
+      await this.options.nitrado.restart(`UnionBot /${this.options.commandName} ${command}; Discord user ${interaction.user.id}; guild ${interaction.guildId}`);
       await interaction.editReply("Перезапуск...");
-      await this.waitForStartup(interaction, status === "stopped");
+      await this.waitForStartup(interaction, status === "stopped", maps);
     } catch (error) {
       console.error("Ошибка команды перезапуска сервера:", error);
       const detail = error instanceof Error ? error.message : "Неизвестная ошибка";
-      const content = restartRequested
+      let content = restartRequested
         ? `Не удалось подтвердить завершение перезапуска. ${detail}. Проверьте панель Nitrado перед повторной командой; повторный запрос автоматически не отправлялся`
         : `Не удалось подготовить перезапуск. ${detail}`;
+      if (rotationSaved && maps) {
+        content = `${formatSavedRotation(maps)}. ${content}${restartRequested ? "" : ". Запрос на перезапуск не отправлен"}`;
+      } else if (rotationSaveRequested) {
+        content = `Не удалось подтвердить сохранение ротации карт. ${detail}. Запрос на перезапуск не отправлен. Проверьте панель Nitrado: ротация могла сохраниться`;
+      } else if (maps) {
+        content = `Не удалось подготовить смену ротации. ${detail}. Сохранение и перезапуск не выполнялись`;
+      }
       // A failed Discord reply must not replay the restart or leave the process locked.
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply({ content, components: [] }).catch((replyError) => {
@@ -91,6 +142,16 @@ export class ServerRestartCommand {
     } finally {
       this.busy = false;
     }
+    return true;
+  }
+
+  private async rejectUnchangedRotation(interaction: ChatInputCommandInteraction, maps: readonly string[]) {
+    const current = await this.options.nitrado.getMapRotation();
+    if (!isSameMapRotation(current, maps)) return false;
+    const content = maps.length === 1
+      ? `Карта ${maps[0]} уже установлена в ротации. Сохранение и перезапуск не выполняются`
+      : "Такая ротация уже установлена: карты, порядок и повторы совпадают. Сохранение и перезапуск не выполняются";
+    await interaction.editReply({ content, components: [] });
     return true;
   }
 
@@ -104,17 +165,20 @@ export class ServerRestartCommand {
     return (this.options.now ?? Date.now)();
   }
 
-  private async confirm(interaction: ChatInputCommandInteraction, onlineCount?: number): Promise<boolean> {
+  private async confirm(interaction: ChatInputCommandInteraction, onlineCount?: number, maps?: readonly string[]): Promise<boolean> {
     const prefix = `server-restart:${randomUUID()}:`;
+    const action = maps
+      ? maps.length === 1 ? `поставить карту ${maps[0]} и перезапустить сервер` : `сохранить ротацию ${maps.join(" → ")} и перезапустить сервер`
+      : "перезапустить сервер";
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`${prefix}confirm`).setLabel("Перезапустить").setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`${prefix}confirm`).setLabel(maps ? "Сохранить ротацию и перезапустить" : "Перезапустить").setStyle(ButtonStyle.Danger),
       new ButtonBuilder().setCustomId(`${prefix}cancel`).setLabel("Отмена").setStyle(ButtonStyle.Secondary),
     );
     const warning = onlineCount === undefined
       ? "Не удалось проверить онлайн. На сервере могут быть игроки"
       : `Сейчас на сервере игроков: ${onlineCount}`;
     const message = await interaction.editReply({
-      content: `${warning}\n\n**Вы уверены, что хотите перезапустить сервер?**\n\n-# Подтверждение действует 60 секунд`,
+      content: `${warning}\n\n**Вы уверены, что хотите ${action}?**\n\n-# Подтверждение действует 60 секунд`,
       components: [row],
     });
     let button: ButtonInteraction;
@@ -142,18 +206,18 @@ export class ServerRestartCommand {
     return true;
   }
 
-  private async waitForStartup(interaction: ChatInputCommandInteraction, sawRestart: boolean) {
+  private async waitForStartup(interaction: ChatInputCommandInteraction, sawRestart: boolean, maps?: readonly string[]) {
     const deadline = this.now() + STATUS_INTERVAL_MS * STATUS_ATTEMPTS;
     for (let attempt = 0; attempt < STATUS_ATTEMPTS && this.now() < deadline; attempt++) {
       await (this.options.wait ?? delay)(Math.min(STATUS_INTERVAL_MS, deadline - this.now()));
       const status = await this.options.nitrado.getStatus();
       if (status === "restarting" || status === "stopping" || status === "stopped") sawRestart = true;
       if (status === "started" && sawRestart) {
-        await interaction.editReply("Сервер запущен");
+        await interaction.editReply(maps ? `${formatSavedRotation(maps)}. Сервер запущен` : "Сервер запущен");
         return;
       }
       if (status !== "started" && status !== "restarting" && status !== "stopping" && status !== "stopped") break;
     }
-    await interaction.editReply("Перезапуск начат...");
+    await interaction.editReply(maps ? `${formatSavedRotation(maps)}. Перезапуск начат...` : "Перезапуск начат...");
   }
 }

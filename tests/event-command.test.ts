@@ -2,17 +2,18 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { ApplicationCommandType, Collection, MessageFlags, type ChatInputCommandInteraction, type Client } from "discord.js";
 import { createEventCommand, getServerCommandName, handleEventCommand, registerEventCommands } from "../src/event-command";
+import { SERVER_MAPS } from "../src/server-maps";
 
 const commandName = getServerCommandName(" Union ");
 
-function fakeInteraction(roles: string[] | { cache: Collection<string, unknown> }, subcommand = "close", guildId: string | null = "guild") {
+function fakeInteraction(roles: string[] | { cache: Collection<string, unknown> }, subcommand = "close", guildId: string | null = "guild", group: string | null = null) {
   const replies: { content: string; flags: number }[] = [];
   const edits: string[] = [];
   const deferrals: number[] = [];
   const deletions: string[] = [];
   const interaction = {
     commandName, guildId, member: guildId ? { roles } : null,
-    options: { getSubcommand: () => subcommand },
+    options: { getSubcommand: () => subcommand, getSubcommandGroup: () => group },
     async reply(reply: { content: string; flags: number }) { replies.push(reply); },
     async deferReply(options: { flags: number }) { deferrals.push(options.flags); },
     async editReply(content: string) { edits.push(content); },
@@ -38,18 +39,22 @@ test("only configured roles can change event status, including in cached and unc
 });
 
 test("missing roles, an empty configuration and direct messages never invoke the update", async () => {
-  const cases = [
-    { fake: fakeInteraction(["other"]), roles: ["allowed"], text: "У вас нет роли для управления отметкой ивента" },
-    { fake: fakeInteraction({ cache: new Collection() }), roles: ["allowed"], text: "У вас нет роли для управления отметкой ивента" },
-    { fake: fakeInteraction(["allowed"]), roles: [], text: "Управление ивентом не настроено: укажите EVENT_MANAGER_ROLE_IDS в .env" },
-    { fake: fakeInteraction(["allowed"], "close", null), roles: ["allowed"], text: "Эта команда доступна только на Discord-сервере" },
-  ];
-  for (const { fake, roles, text } of cases) {
-    await handleEventCommand(fake.interaction, roles, async () => { assert.fail("unauthorized status change"); }, commandName);
-    assert.equal(fake.replies.length, 1);
-    assert.equal(fake.replies[0].flags, MessageFlags.Ephemeral);
-    assert.equal(fake.replies[0].content, text);
-    assert.deepEqual(fake.deferrals, []);
+  for (const subcommand of ["close", "open"]) {
+    const cases = [
+      { fake: fakeInteraction(["other"], subcommand), roles: ["allowed"], text: "У вас нет роли для управления отметкой ивента" },
+      { fake: fakeInteraction({ cache: new Collection() }, subcommand), roles: ["allowed"], text: "У вас нет роли для управления отметкой ивента" },
+      { fake: fakeInteraction(["allowed"], subcommand), roles: [], text: "Управление ивентом не настроено: укажите EVENT_MANAGER_ROLE_IDS в .env" },
+      { fake: fakeInteraction(["allowed"], subcommand, null), roles: ["allowed"], text: "Эта команда доступна только на Discord-сервере" },
+    ];
+    for (const { fake, roles, text } of cases) {
+      // Administrator permission alone does not grant a configured manager role.
+      if (fake.interaction.member) Object.assign(fake.interaction.member, { permissions: "8" });
+      await handleEventCommand(fake.interaction, roles, async () => { assert.fail("unauthorized status change"); }, commandName);
+      assert.equal(fake.replies.length, 1);
+      assert.equal(fake.replies[0].flags, MessageFlags.Ephemeral);
+      assert.equal(fake.replies[0].content, text);
+      assert.deepEqual(fake.deferrals, []);
+    }
   }
 });
 
@@ -65,7 +70,7 @@ test("partial notification failures still confirm the saved status without a tra
 });
 
 test("unknown subcommands reply with usage without a trailing period and never invoke the update", async () => {
-  for (const subcommand of ["unknown", "start", "stop"]) {
+  for (const subcommand of ["unknown", "start", "stop", "maps"]) {
     const fake = fakeInteraction(["allowed"], subcommand);
     assert.equal(await handleEventCommand(fake.interaction, ["allowed"], async () => {
       assert.fail("unknown subcommand must not change event status");
@@ -82,9 +87,11 @@ test("other commands are left to their own handlers", async () => {
     assert.equal(await handleEventCommand(fake.interaction, ["allowed"], async () => { assert.fail(); }, commandName), false);
     assert.deepEqual(fake.replies, []);
   }
-  const restart = fakeInteraction(["allowed"], "restart");
-  assert.equal(await handleEventCommand(restart.interaction, ["allowed"], async () => { assert.fail(); }, commandName), false);
-  assert.deepEqual(restart.replies, []);
+  for (const [subcommand, group] of [["restart", null], ["map", "set"], ["lts", "set"], ["duelyard", "set"]] as const) {
+    const fake = fakeInteraction(["allowed"], subcommand, "guild", group);
+    assert.equal(await handleEventCommand(fake.interaction, ["allowed"], async () => { assert.fail(); }, commandName), false);
+    assert.deepEqual(fake.replies, []);
+  }
 });
 
 test("failed persistence does not report that the server was closed", async (context) => {
@@ -154,7 +161,7 @@ test("configured commands replace legacy server and event commands once per guil
   await registerEventCommands(client, ["one", "two", "three", "dm"], commandName);
   assert.deepEqual(registrations.map(({ guildId }) => guildId), ["guild-1", "guild-2"]);
   assert.equal(registrations[0].data.name, "union");
-  assert.deepEqual(registrations[0].data.options?.map((option) => option.name), ["close", "open", "restart"]);
+  assert.deepEqual(registrations[0].data.options?.map((option) => option.name), ["close", "open", "restart", "set", "show"]);
   await registerEventCommands(client, ["one", "two", "three", "dm"], commandName);
   assert.deepEqual(registrations.map(({ guildId }) => guildId), ["guild-1", "guild-2", "guild-1", "guild-2"]);
   assert.deepEqual(deletions, [
@@ -171,6 +178,78 @@ test("server display names produce valid commands and invalid names fail before 
   for (const displayName of ["Union server", "union!", "a".repeat(33)]) {
     assert.throws(() => getServerCommandName(displayName), /SERVER_DISPLAY_NAME/);
   }
+});
+
+test("set is a group with a map command accepting a required maps string", () => {
+  const set = createEventCommand(commandName).toJSON().options?.find((option) => option.name === "set");
+  assert.ok(set?.type === 2);
+  assert.ok(set.options);
+  assert.deepEqual(set.options.map((option) => ({ name: option.name, type: option.type })), [
+    { name: "map", type: 1 }, { name: "lts", type: 1 }, { name: "duelyard", type: 1 },
+  ]);
+  const map = set.options.find((option) => option.name === "map");
+  assert.deepEqual(map?.options?.map((option) => ({ name: option.name, type: option.type, required: "required" in option && option.required })), [
+    { name: "maps", type: 3, required: true },
+  ]);
+  const maps = map?.options?.[0];
+  assert.ok(maps?.type === 3);
+  assert.equal(maps.max_length, 1000);
+  assert.equal(maps.autocomplete, false);
+});
+
+test("set presets are registered as separate commands without arguments", () => {
+  const set = createEventCommand(commandName).toJSON().options?.find((option) => option.name === "set");
+  assert.ok(set?.type === 2);
+  assert.ok(set.options);
+  assert.deepEqual(set.options
+    .filter((option) => option.name === "lts" || option.name === "duelyard")
+    .map((option) => ({ name: option.name, type: option.type, options: option.options ?? [] })), [
+    { name: "lts", type: 1, options: [] },
+    { name: "duelyard", type: 1, options: [] },
+  ]);
+});
+
+test("maps is registered as /show maps without required parameters", () => {
+  const show = createEventCommand(commandName).toJSON().options?.find((option) => option.name === "show");
+  assert.ok(show && "options" in show);
+  assert.equal(show.type, 2);
+  assert.deepEqual(show.options?.map((option) => ({ name: option.name, type: option.type })), [{ name: "maps", type: 1 }]);
+  assert.ok(!show.options?.[0].options?.length);
+});
+
+test("show maps displays all 44 maps once in a private reply without manager roles or event changes", async () => {
+  for (const roleIds of [[], ["manager"]]) {
+    const fake = fakeInteraction([], "maps", "guild", "show");
+    assert.equal(await handleEventCommand(fake.interaction, roleIds, async () => { assert.fail("viewing maps must not change the event"); }, commandName), true);
+    assert.equal(fake.replies.length, 1);
+    const reply = fake.replies[0];
+    assert.equal(reply.flags, MessageFlags.Ephemeral);
+    assert.match(reply.content, /Доступные карты — 44/);
+    const maps = Array.from(reply.content.matchAll(/`([A-Za-z0-9_]+)`/g), (match) => match[1]);
+    assert.deepEqual(maps, SERVER_MAPS);
+    assert.equal(new Set(maps).size, 44);
+    assert.ok(reply.content.length <= 2000, "all maps must fit in one Discord message");
+    assert.match(reply.content, /\*\*PR_LTS\*\*\n`PR_LTS_Raid`/);
+    assert.match(reply.content, /\*\*BRAWL\*\*/);
+    assert.match(reply.content, /\/union set map FFA_Duelyard/);
+    assert.deepEqual(fake.deferrals, []);
+  }
+});
+
+test("show maps uses the configured command name and rejects direct messages and other commands", async () => {
+  const configured = fakeInteraction([], "maps", "guild", "show");
+  Object.defineProperty(configured.interaction, "commandName", { value: "elbrus" });
+  assert.equal(await handleEventCommand(configured.interaction, [], async () => { assert.fail(); }, "elbrus"), true);
+  assert.match(configured.replies[0].content, /\/elbrus set map FFA_Duelyard/);
+
+  const dm = fakeInteraction([], "maps", null, "show");
+  await handleEventCommand(dm.interaction, [], async () => { assert.fail(); }, commandName);
+  assert.deepEqual(dm.replies, [{ content: "Эта команда доступна только на Discord-сервере", flags: MessageFlags.Ephemeral }]);
+
+  const other = fakeInteraction([], "maps", "guild", "show");
+  Object.defineProperty(other.interaction, "commandName", { value: "other" });
+  assert.equal(await handleEventCommand(other.interaction, [], async () => { assert.fail(); }, commandName), false);
+  assert.deepEqual(other.replies, []);
 });
 
 test("a failed registration keeps the legacy commands available", async (context) => {

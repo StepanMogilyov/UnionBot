@@ -1,5 +1,7 @@
 import { ApplicationCommandType, MessageFlags, SlashCommandBuilder, type ChatInputCommandInteraction, type Client } from "discord.js";
 import type { EventNotificationResult } from "./activity-notifications";
+import { formatServerMapsMessage } from "./discord-messages";
+import { MAX_MAP_ROTATION_LENGTH } from "./server-maps";
 
 export function getServerCommandName(serverDisplayName: string) {
   const commandName = serverDisplayName.trim().toLowerCase() || "server";
@@ -14,10 +16,18 @@ export function getServerCommandName(serverDisplayName: string) {
 export function createEventCommand(commandName: string) {
   return new SlashCommandBuilder()
     .setName(commandName)
-    .setDescription("Управление игровым сервером и отметкой ивента")
+    .setDescription("Информация об игровом сервере и управление им")
     .addSubcommand((command) => command.setName("close").setDescription("Сообщить о закрытии сервера на ивент"))
     .addSubcommand((command) => command.setName("open").setDescription("Сообщить о завершении ивента и открытии сервера"))
-    .addSubcommand((command) => command.setName("restart").setDescription("Перезапустить игровой сервер"));
+    .addSubcommand((command) => command.setName("restart").setDescription("Перезапустить игровой сервер"))
+    .addSubcommandGroup((group) => group.setName("set").setDescription("Сохранить ротацию карт и перезапустить игровой сервер")
+      .addSubcommand((command) => command.setName("map").setDescription("Установить выбранные карты и перезапустить сервер (несколько карт — через пробел)")
+        .addStringOption((option) => option.setName("maps").setDescription(`Например: FFA_Duelyard TO_DarkForest. Список и примеры: /${commandName} show maps`)
+          .setRequired(true).setMinLength(1).setMaxLength(MAX_MAP_ROTATION_LENGTH).setAutocomplete(false)))
+      .addSubcommand((command) => command.setName("lts").setDescription("Установить все карты LTS и перезапустить сервер"))
+      .addSubcommand((command) => command.setName("duelyard").setDescription("Оставить только FFA_Duelyard и перезапустить сервер")))
+    .addSubcommandGroup((group) => group.setName("show").setDescription("Посмотреть информацию об игровом сервере")
+      .addSubcommand((command) => command.setName("maps").setDescription("Показать полный список доступных карт")));
 }
 
 export async function registerEventCommands(client: Client, channelIds: string[], commandName: string) {
@@ -50,9 +60,15 @@ export async function registerEventCommands(client: Client, channelIds: string[]
 
 export async function handleEventCommand(interaction: ChatInputCommandInteraction, roleIds: string[], setEventClosed: (closed: boolean) => Promise<EventNotificationResult>, commandName: string) {
   if (interaction.commandName !== commandName) return false;
-  if (interaction.options.getSubcommand() === "restart") return false;
+  const group = interaction.options.getSubcommandGroup(false);
+  const subcommand = interaction.options.getSubcommand();
+  if (group === "set" || (!group && subcommand === "restart")) return false;
   if (!interaction.guildId || !interaction.member) {
     await interaction.reply({ content: "Эта команда доступна только на Discord-сервере", flags: MessageFlags.Ephemeral });
+    return true;
+  }
+  if (group === "show" && subcommand === "maps") {
+    await interaction.reply({ content: formatServerMapsMessage(commandName), flags: MessageFlags.Ephemeral });
     return true;
   }
   if (roleIds.length === 0) {
@@ -65,8 +81,7 @@ export async function handleEventCommand(interaction: ChatInputCommandInteractio
     await interaction.reply({ content: "У вас нет роли для управления отметкой ивента", flags: MessageFlags.Ephemeral });
     return true;
   }
-  const subcommand = interaction.options.getSubcommand();
-  if (subcommand !== "close" && subcommand !== "open") {
+  if (group || (subcommand !== "close" && subcommand !== "open")) {
     await interaction.reply({ content: `Используйте /${commandName} close или /${commandName} open`, flags: MessageFlags.Ephemeral });
     return true;
   }
@@ -79,9 +94,9 @@ export async function handleEventCommand(interaction: ChatInputCommandInteractio
     await completeEventReply(interaction, "Не удалось сохранить статус ивента. Попробуйте ещё раз");
     return true;
   }
-  const lines = [subcommand === "close" ? "Статус сохранён: сервер закрыт на ивент" : "Статус сохранён: ивент завершён, сервер открыт"];
-
-  await completeEventReply(interaction, lines.join("\n"));
+  await completeEventReply(interaction, subcommand === "close"
+    ? "Статус сохранён: сервер закрыт на ивент"
+    : "Статус сохранён: ивент завершён, сервер открыт");
   return true;
 }
 

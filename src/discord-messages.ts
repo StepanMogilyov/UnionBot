@@ -1,5 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, escapeMarkdown } from "discord.js";
 import type { PlayerEventBatchMessage, ServerSnapshot } from "./server-monitor";
+import { SERVER_MAPS } from "./server-maps";
 
 export const ONLINE_PLAYERS_BUTTON_ID = "online_players_tab";
 export const ACTIVITY_DESCRIPTION = "Изменения активности на сервере";
@@ -61,4 +62,16 @@ export function formatOnlinePlayersMessage(snapshot: ServerSnapshot) {
     : "Сейчас никого нет 🪦";
 
   return `**Игроки онлайн — ${snapshot.onlineCount}/${snapshot.maxPlayers}**\n\n${playerList}`;
+}
+
+export function formatServerMapsMessage(commandName: string) {
+  const groups = new Map<string, string[]>();
+  for (const map of SERVER_MAPS) {
+    const mode = map.startsWith("PR_LTS_") ? "PR_LTS" : map.slice(0, map.indexOf("_")).toUpperCase();
+    const maps = groups.get(mode) ?? [];
+    maps.push(map);
+    groups.set(mode, maps);
+  }
+  const sections = Array.from(groups, ([mode, maps]) => `**${mode}**\n${maps.map((map) => `\`${map}\``).join("\n")}`);
+  return `**Доступные карты — ${SERVER_MAPS.length}**\n\n${sections.join("\n\n")}\n\nДля смены карты (несколько карт — через пробел): \`/${commandName} set map FFA_Duelyard\`\nПример ротации: \`/${commandName} set map TO_Coxwell TO_Lionspire TO_RudhelmSiege\`\nВсе карты LTS: \`/${commandName} set lts\`\nТолько Duelyard: \`/${commandName} set duelyard\``;
 }

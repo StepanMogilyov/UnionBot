@@ -1,3 +1,5 @@
+import { isSameMapRotation } from "./server-maps";
+
 interface NitradoOptions {
   token: string;
   serviceId: string;
@@ -34,19 +36,39 @@ export class NitradoClient {
   }
 
   async restart(message: string): Promise<void> {
-    await this.request("/restart", message);
+    await this.request("/restart", { message });
   }
 
-  private async request(path: string, message?: string): Promise<Record<string, unknown>> {
+  async getMapRotation(): Promise<string[]> {
+    const response = await this.request("/settings");
+    const data = response.data;
+    const settings = isObject(data) ? data.settings : undefined;
+    const config = isObject(settings) ? settings.config : undefined;
+    const saved = isObject(config) ? config["map-rotation"] : undefined;
+    if (typeof saved !== "string") {
+      throw new Error("Nitrado вернул некорректную ротацию карт; проверьте настройку Map rotation в панели хостинга");
+    }
+    return saved.split(/\r\n|\r|\n/).map((map) => map.trim()).filter(Boolean);
+  }
+
+  async setMapRotation(maps: readonly string[]): Promise<void> {
+    if (maps.length === 0) throw new Error("Укажите хотя бы одну карту для ротации");
+    await this.request("/settings", { category: "config", key: "map-rotation", value: maps.join("\n") });
+    if (!isSameMapRotation(await this.getMapRotation(), maps)) {
+      throw new Error("Nitrado не подтвердил сохранение ротации карт; проверьте настройку Map rotation в панели хостинга");
+    }
+  }
+
+  private async request(path: string, body?: Record<string, string>): Promise<Record<string, unknown>> {
     if (!this.configured) throw new Error("Укажите NITRADO_API_TOKEN и NITRADO_SERVICE_ID в .env");
 
     let response: Response;
     let payload: unknown;
     try {
       response = await this.fetch(`https://api.nitrado.net/services/${this.serviceId}/gameservers${path}`, {
-        method: message === undefined ? "GET" : "POST",
+        method: body === undefined ? "GET" : "POST",
         headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
-        body: message === undefined ? undefined : JSON.stringify({ message }),
+        body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(15_000),
         redirect: "error",
       });
