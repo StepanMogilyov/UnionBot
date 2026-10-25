@@ -25,7 +25,7 @@ export function createEventCommand(commandName: string) {
         .addStringOption((option) => option.setName("maps").setDescription(`Например: FFA_Duelyard TO_DarkForest. Список и примеры: /${commandName} show maps`)
           .setRequired(true).setMinLength(1).setMaxLength(MAX_MAP_ROTATION_LENGTH).setAutocomplete(false)))
       .addSubcommand((command) => command.setName("lts").setDescription("Установить все карты LTS и перезапустить сервер"))
-      .addSubcommand((command) => command.setName("duelyard").setDescription("Оставить только FFA_Duelyard и перезапустить сервер")))
+      .addSubcommand((command) => command.setName("duelyard").setDescription("Установить только FFA_Duelyard и перезапустить сервер")))
     .addSubcommandGroup((group) => group.setName("show").setDescription("Посмотреть информацию об игровом сервере")
       .addSubcommand((command) => command.setName("maps").setDescription("Показать полный список доступных карт")));
 }
