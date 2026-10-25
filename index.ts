@@ -11,6 +11,7 @@ import { ActivityNotifications } from "./src/activity-notifications";
 import { getServerCommandName, handleEventCommand, registerEventCommands } from "./src/event-command";
 import { NitradoClient } from "./src/nitrado-client";
 import { ServerRestartCommand } from "./src/server-restart-command";
+import { LtsSchedule } from "./src/lts-schedule";
 
 const { DISCORD_TOKEN = "", CHANNEL_IDS = "", HOST = "", PORT = "", SERVER_QUERY_TIMEOUT_MS = "10000", EVENT_MANAGER_ROLE_IDS = "", SERVER_DISPLAY_NAME = "" } = process.env;
 const serverCommandName = getServerCommandName(SERVER_DISPLAY_NAME);
@@ -57,6 +58,13 @@ const serverRestartCommand = new ServerRestartCommand({
   nitrado: new NitradoClient({ token: NITRADO_API_TOKEN, serviceId: NITRADO_SERVICE_ID }),
   refresh: checkServer,
 });
+const ltsSchedule = new LtsSchedule({
+  filePath: join(__dirname, "lts-schedule.json"),
+  setPreset: (preset, options) => serverRestartCommand.setPresetAutomatically(preset, options),
+  refresh: checkServer,
+  onError: (error) => console.error("Ошибка автоматического расписания LTS; проверьте панель Nitrado:", error),
+  onApplied: (preset, result) => console.log(`Расписание LTS (Europe/Moscow): set ${preset}: ${result}`),
+});
 
 function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPlayers?: number, map?: string) {
   const statusEmoji = !isOnline ? "🪦" : onlineCount !== undefined && onlineCount > 0 ? "🟢" : "🔴";
@@ -78,6 +86,9 @@ function formatStatusChannelName(isOnline: boolean, onlineCount?: number, maxPla
 }
 
 function publishServerRefresh(result: ServerRefreshResult) {
+  void ltsSchedule.check(result).catch((error) => {
+    console.error("Ошибка автоматического расписания LTS; проверьте панель Nitrado:", error);
+  });
   if (result.status !== "online") {
     console.warn(`Не удалось обновить данные сервера (${result.status}): ${result.error.message}`);
     if (result.status === "offline") statusChannelUpdater.update(formatStatusChannelName(false));
@@ -99,6 +110,7 @@ function checkServer() {
 
 client.once("clientReady", () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
+  ltsSchedule.start();
   void activityNotifications.restoreAutoOpen().catch((error) => {
     console.error("Ошибка восстановления таймера открытия сервера:", error);
   });
@@ -142,6 +154,7 @@ client.on("interactionCreate", async (interaction) => {
 
 async function start() {
   await eventStatus.load();
+  await ltsSchedule.load();
   await client.login(DISCORD_TOKEN);
 }
 

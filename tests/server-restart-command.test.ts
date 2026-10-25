@@ -732,3 +732,47 @@ test("restart remains available even if rotation settings cannot be read", async
   assert.deepEqual(state.operations, ["restart"]);
   assert.equal(fake.edits.at(-1), "Сервер запущен");
 });
+
+test("automatic LTS waits behind a manual command's confirmation without changing maps", async () => {
+  const state = setup({ count: 2 });
+  const fake = fakeInteraction({ choice: "cancel", onConfirmation: async (button) => {
+    const result = await state.command.setPresetAutomatically("lts", {
+      shouldApply: () => true,
+      beforeMutation: async () => { assert.fail("automatic mutation while a manual command is pending"); },
+    });
+    assert.equal(result, "deferred");
+    assert.deepEqual(state.operations, []);
+    return button;
+  } });
+  await state.command.handle(fake.interaction);
+  assert.deepEqual(state.operations, []);
+});
+
+test("manual commands wait behind automatic saving and the lock releases afterwards", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let entered!: () => void;
+  const saving = new Promise<void>((resolve) => { entered = resolve; });
+  const state = setupMap({ onSetMapRotation: async () => { entered(); await gate; } });
+  const automatic = state.command.setPresetAutomatically("lts", { shouldApply: () => true, beforeMutation: async () => {} });
+  await saving;
+  const fake = fakeInteraction();
+  await state.command.handle(fake.interaction);
+  assert.match(fake.replies[0].content, /Перезапуск уже запрошен/);
+  release();
+  assert.equal(await automatic, "applied");
+  assert.equal(state.restarts.length, 1);
+  assert.equal(await state.command.setPresetAutomatically("lts", { shouldApply: () => true, beforeMutation: async () => {} }), "deferred");
+  assert.equal(state.statusRequests, 4, "the next request sees Nitrado restarting after the lock releases");
+});
+
+test("automatic presets recheck the time guard before saving after slow API calls", async () => {
+  let checks = 0;
+  const state = setupMap();
+  const result = await state.command.setPresetAutomatically("lts", {
+    shouldApply: () => ++checks === 1,
+    beforeMutation: async () => { assert.fail("expired window must not be persisted as attempted"); },
+  });
+  assert.equal(result, "deferred");
+  assert.deepEqual(state.operations, []);
+});

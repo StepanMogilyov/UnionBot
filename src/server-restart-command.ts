@@ -6,7 +6,17 @@ import {
 } from "discord.js";
 import type { ServerRefreshResult } from "./server-monitor";
 import type { NitradoClient } from "./nitrado-client";
-import { isSameMapRotation, MAX_MAP_ROTATION_LENGTH, SERVER_MAPS } from "./server-maps";
+import { getPresetMaps, isSameMapRotation, MAX_MAP_ROTATION_LENGTH, SERVER_MAPS, type MapPreset } from "./server-maps";
+
+export type AutomaticPresetResult = "applied" | "unchanged" | "deferred";
+
+export interface AutomaticPresetOptions {
+  beforeMutation: () => Promise<void>;
+  shouldApply: () => boolean;
+  restartIfUnchanged?: boolean;
+  afterSave?: () => Promise<void>;
+  beforeRestart?: () => Promise<void>;
+}
 
 interface RestartOptions {
   commandName: string;
@@ -57,7 +67,7 @@ export class ServerRestartCommand {
 
     let maps: string[] | undefined;
     if (isSetPreset) {
-      maps = subcommand === "duelyard" ? ["FFA_Duelyard"] : SERVER_MAPS.filter((name) => name.startsWith("LTS_"));
+      maps = getPresetMaps(subcommand as MapPreset);
     } else if (isSetMap) {
       const input = interaction.options.getString("maps", true).trim();
       const names = input.split(/\s+/);
@@ -143,6 +153,51 @@ export class ServerRestartCommand {
       this.busy = false;
     }
     return true;
+  }
+
+  async setPresetAutomatically(preset: MapPreset, options: AutomaticPresetOptions): Promise<AutomaticPresetResult> {
+    if (this.busy || !this.options.nitrado.configured || !options.shouldApply()) return "deferred";
+    this.busy = true;
+    try {
+      const maps = getPresetMaps(preset);
+      const initialStatus = await this.options.nitrado.getStatus();
+      if (initialStatus !== "started" && initialStatus !== "stopped") return "deferred";
+      const unchanged = isSameMapRotation(await this.options.nitrado.getMapRotation(), maps);
+      if (unchanged && !options.restartIfUnchanged) return "unchanged";
+
+      const status = await this.options.nitrado.getStatus();
+      if (status !== "started" && status !== "stopped") return "deferred";
+      if (preset === "duelyard") {
+        // Recheck after reading Nitrado: a player may have joined since the minute poll.
+        const result = await this.options.refresh();
+        if (result.status !== "online" || result.snapshot.onlineCount !== 0) return "deferred";
+      }
+      if (!options.shouldApply()) return "deferred";
+
+      // Persist the attempt before either POST: a timeout can mean it was accepted.
+      if (!unchanged) {
+        await options.beforeMutation();
+        if (!options.shouldApply()) return "deferred";
+        await this.options.nitrado.setMapRotation(maps);
+      }
+      await options.afterSave?.();
+      const savedStatus = await this.options.nitrado.getStatus();
+      if (savedStatus !== "started" && savedStatus !== "stopped") {
+        return "deferred";
+      }
+      if (preset === "duelyard") {
+        // Saving and verifying settings takes time. Never restart players who joined meanwhile.
+        const result = await this.options.refresh();
+        if (result.status !== "online" || result.snapshot.onlineCount !== 0) return "deferred";
+      }
+      if (!options.shouldApply()) return "deferred";
+      await options.beforeRestart?.();
+      if (!options.shouldApply()) return "deferred";
+      await this.options.nitrado.restart(`UnionBot /${this.options.commandName} set ${preset}; automatic Wednesday schedule Europe/Moscow`);
+      return "applied";
+    } finally {
+      this.busy = false;
+    }
   }
 
   private async rejectUnchangedRotation(interaction: ChatInputCommandInteraction, maps: readonly string[]) {

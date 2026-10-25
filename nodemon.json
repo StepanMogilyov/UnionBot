@@ -2,6 +2,8 @@
   "ignore": [
     "event-status.json",
     "event-status.json.tmp",
+    "lts-schedule.json",
+    "lts-schedule.json.tmp",
     "tests/.unionbot-test-*/**"
   ]
 }

@@ -50,3 +50,9 @@ export const SERVER_MAPS: readonly string[] = [
   "BOW_Falmire",
   "BOW_Wardenglade",
 ];
+
+export type MapPreset = "lts" | "duelyard";
+
+export function getPresetMaps(preset: MapPreset): string[] {
+  return preset === "duelyard" ? ["FFA_Duelyard"] : SERVER_MAPS.filter((name) => name.startsWith("LTS_"));
+}
