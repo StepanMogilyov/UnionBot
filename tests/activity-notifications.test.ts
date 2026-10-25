@@ -16,6 +16,33 @@ const event: PlayerEventBatchMessage = {
   joinedPlayers: ["b"], leftPlayers: [],
 };
 
+test("player changes determine the activity color even when the map changes", () => {
+  const cases = [
+    { players: ["a", "b"], joinedPlayers: ["b"], leftPlayers: [], color: 0x57f287 },
+    { players: ["a"], joinedPlayers: [], leftPlayers: ["b"], color: 0xed4245 },
+    { players: [], joinedPlayers: [], leftPlayers: ["a", "b"], color: 0xed4245 },
+    { players: ["a", "c"], joinedPlayers: ["c"], leftPlayers: ["b"], color: 0xfee75c },
+  ];
+  for (const mapChanged of [undefined, false, true]) {
+    for (const { color, ...changes } of cases) {
+      const embed = createPlayerEventEmbed({
+        ...event, ...changes, onlineCount: changes.players.length, mapChanged,
+      }).toJSON();
+      assert.equal(embed.color, color,
+        `joined=${changes.joinedPlayers.length}, left=${changes.leftPlayers.length}, online=${changes.players.length}, mapChanged=${mapChanged}`);
+    }
+  }
+});
+
+test("map-only activity keeps the online-based color", () => {
+  for (const players of [["a", "b"], []]) {
+    const embed = createPlayerEventEmbed({
+      ...event, players, onlineCount: players.length, joinedPlayers: [], leftPlayers: [], mapChanged: true,
+    }).toJSON();
+    assert.equal(embed.color, players.length > 0 ? 0x57f287 : 0xfee75c);
+  }
+});
+
 async function setup(context: TestContext) {
   const directory = await createTestDirectory(context);
   const path = join(directory, "event-status.json");
