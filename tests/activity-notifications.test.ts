@@ -240,7 +240,7 @@ test("refreshing for start can publish real player changes without blocking the 
   assert.equal(channel.sent[1].embeds[0].fields[2].value, "• **b**");
 });
 
-test("an event opens automatically after four hours and sends the existing opening notice once", async (context) => {
+test("an event opens automatically after six hours and sends the existing opening notice once", async (context) => {
   const { channels, store, notifications, errors } = await setup(context);
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
   const channel = fakeChannel();
@@ -251,7 +251,12 @@ test("an event opens automatically after four hours and sends the existing openi
     return { status: "online", snapshot: event, event: null };
   });
   await notices.setEventClosed(true);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS - 1);
+  context.mock.timers.tick(4 * 60 * 60 * 1000);
+  await notices.publish(event);
+  assert.equal(store.closed, true);
+  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 0);
+
+  context.mock.timers.tick(2 * 60 * 60 * 1000 - 1);
   await notices.publish(event);
   assert.equal(store.closed, true);
   assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 0);
@@ -298,7 +303,7 @@ test("a manual stop cancels automatic opening, including a timer already waiting
   assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
 });
 
-test("a repeated start begins a new four-hour countdown", async (context) => {
+test("a repeated start begins a new six-hour countdown", async (context) => {
   const { channels, store, notifications } = await setup(context);
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
   const channel = fakeChannel();

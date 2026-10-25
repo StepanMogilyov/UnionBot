@@ -1,6 +1,6 @@
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 
-export const EVENT_AUTO_OPEN_DELAY_MS = 4 * 60 * 60 * 1000;
+export const EVENT_AUTO_OPEN_DELAY_MS = 6 * 60 * 60 * 1000;
 
 interface EventStatus {
   closed: boolean;

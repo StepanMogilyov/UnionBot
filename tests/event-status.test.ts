@@ -54,13 +54,13 @@ test("a failed save does not change the active event status", async (context) =>
   assert.equal(store.autoOpenAt, undefined);
 });
 
-test("each start saves a new four-hour deadline and stop removes it", async (context) => {
+test("each start saves a new six-hour deadline and stop removes it", async (context) => {
   const directory = await createTestDirectory(context);
   const path = join(directory, "event-status.json");
   const store = new EventStatusStore(path);
   context.mock.timers.enable({ apis: ["Date"], now: 1000 });
   await store.setClosed(true);
-  assert.equal(store.autoOpenAt, 1000 + EVENT_AUTO_OPEN_DELAY_MS);
+  assert.equal(store.autoOpenAt, 1000 + 6 * 60 * 60 * 1000);
   context.mock.timers.tick(5000);
   await store.setClosed(true);
   assert.equal(store.autoOpenAt, 6000 + EVENT_AUTO_OPEN_DELAY_MS);
