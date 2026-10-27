@@ -231,7 +231,7 @@ test("show maps displays all 44 maps once in a private reply without manager rol
     assert.ok(reply.content.length <= 2000, "all maps must fit in one Discord message");
     assert.match(reply.content, /\*\*PR_LTS\*\*\n`PR_LTS_Raid`/);
     assert.match(reply.content, /\*\*BRAWL\*\*/);
-    assert.match(reply.content, /\/union set map FFA_Duelyard/);
+    assert.match(reply.content, /\/union set map FFA_Wardenglade/);
     assert.deepEqual(fake.deferrals, []);
   }
 });
@@ -240,7 +240,7 @@ test("show maps uses the configured command name and rejects direct messages and
   const configured = fakeInteraction([], "maps", "guild", "show");
   Object.defineProperty(configured.interaction, "commandName", { value: "elbrus" });
   assert.equal(await handleEventCommand(configured.interaction, [], async () => { assert.fail(); }, "elbrus"), true);
-  assert.match(configured.replies[0].content, /\/elbrus set map FFA_Duelyard/);
+  assert.match(configured.replies[0].content, /\/elbrus set map FFA_Wardenglade/);
 
   const dm = fakeInteraction([], "maps", null, "show");
   await handleEventCommand(dm.interaction, [], async () => { assert.fail(); }, commandName);
