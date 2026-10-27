@@ -73,5 +73,5 @@ export function formatServerMapsMessage(commandName: string) {
     groups.set(mode, maps);
   }
   const sections = Array.from(groups, ([mode, maps]) => `**${mode}**\n${maps.map((map) => `\`${map}\``).join("\n")}`);
-  return `**Доступные карты — ${SERVER_MAPS.length}**\n\n${sections.join("\n\n")}\n\nДля смены карты (несколько карт — через пробел): \`/${commandName} set map FFA_Duelyard\`\nПример ротации: \`/${commandName} set map TO_Coxwell TO_Lionspire TO_RudhelmSiege\`\nВсе карты LTS: \`/${commandName} set lts\`\nТолько Duelyard: \`/${commandName} set duelyard\``;
+  return `**Доступные карты — ${SERVER_MAPS.length}**\n\n${sections.join("\n\n")}\n\nДля смены карты (несколько карт — через пробел): \`/${commandName} set map FFA_Wardenglade\`\nПример ротации: \`/${commandName} set map TO_Coxwell TO_Lionspire TO_RudhelmSiege\`\nВсе карты LTS: \`/${commandName} set lts\`\nТолько Duelyard: \`/${commandName} set duelyard\``;
 }
