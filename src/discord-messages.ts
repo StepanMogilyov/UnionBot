@@ -9,7 +9,7 @@ export const EVENT_OPEN_NOTICE = "🔓 Сервер доступен по тек
 
 export function createEventStatusEmbed(eventClosed: boolean, snapshot?: ServerSnapshot) {
   const embed = new EmbedBuilder()
-    .setColor(0x57f287)
+    .setColor(eventClosed ? 0xfee75c : 0x57f287)
     .setDescription(eventClosed ? formatActivityDescription(true) : EVENT_OPEN_NOTICE)
     .setTimestamp();
   return addServerFields(embed, snapshot);
