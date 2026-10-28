@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
-const OFFLINE_CONFIRMATION_FAILURES = 3;
+const OFFLINE_CONFIRMATION_FAILURES = 5;
 
 export interface ServerInfo {
   header: string;

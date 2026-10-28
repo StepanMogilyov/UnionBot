@@ -174,8 +174,9 @@ test("transient timeouts preserve the online channel name and confirmed outages 
   await server.refresh();
   await nextTurn();
   responding = false;
-  await server.refresh();
-  await server.refresh();
+  for (let i = 0; i < 4; i++) {
+    assert.equal((await server.refresh()).status, "unavailable");
+  }
   await nextTurn();
   assert.deepEqual(names, ["1/26"]);
   assert.equal(channel.name, "1/26");
@@ -183,8 +184,12 @@ test("transient timeouts preserve the online channel name and confirmed outages 
   responding = true;
   await server.refresh();
   responding = false;
-  await server.refresh();
-  await server.refresh();
+  for (let i = 0; i < 4; i++) {
+    assert.equal((await server.refresh()).status, "unavailable");
+  }
+  await nextTurn();
+  assert.deepEqual(names, ["1/26"]);
+  assert.equal(channel.name, "1/26");
   await server.refresh();
   await nextTurn();
   assert.equal(channel.name, "offline");
