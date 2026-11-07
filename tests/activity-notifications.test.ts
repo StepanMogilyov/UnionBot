@@ -6,7 +6,7 @@ import { test, type TestContext } from "node:test";
 import { EmbedBuilder, type Client, type Embed } from "discord.js";
 import { ActivityNotifications } from "../src/activity-notifications";
 import { createOnlinePlayersButtonRow, createPlayerEventEmbed, EVENT_CLOSED_NOTICE, EVENT_OPEN_NOTICE } from "../src/discord-messages";
-import { EVENT_AUTO_OPEN_DELAY_MS, EventStatusStore } from "../src/event-status";
+import { EventStatusStore } from "../src/event-status";
 import { ServerMonitor, type PlayerEventBatchMessage, type ServerRefreshResult } from "../src/server-monitor";
 import { StatusChannelUpdater } from "../src/status-channel-updater";
 import { createTestDirectory } from "./test-directory";
@@ -267,188 +267,43 @@ test("refreshing for start can publish real player changes without blocking the 
   assert.equal(channel.sent[1].embeds[0].fields[2].value, "• **b**");
 });
 
-test("an event opens automatically after six hours and sends the existing opening notice once", async (context) => {
-  const { channels, store, notifications, errors } = await setup(context);
-  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
-  const channel = fakeChannel();
-  channels.set("one", channel);
-  let queries = 0;
-  const notices = notifications(["one"], async () => {
-    queries++;
-    return { status: "online", snapshot: event, event: null };
-  });
-  await notices.setEventClosed(true);
-  context.mock.timers.tick(4 * 60 * 60 * 1000);
-  await notices.publish(event);
-  assert.equal(store.closed, true);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 0);
-
-  context.mock.timers.tick(2 * 60 * 60 * 1000 - 1);
-  await notices.publish(event);
-  assert.equal(store.closed, true);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 0);
-
-  context.mock.timers.tick(1);
-  await notices.publish(event); // Wait behind the timer's queued delivery and verify subsequent activity.
-  assert.equal(store.closed, false);
-  assert.equal(store.autoOpenAt, undefined);
-  const opening = channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE);
-  assert.equal(opening.length, 1);
-  assert.deepEqual(opening[0].embeds[0].fields, [
-    { name: "Онлайн", value: "**2/26**", inline: true },
-    { name: "Карта", value: "**FFA\\_Duelyard**", inline: true },
-  ]);
-  assert.deepEqual(opening[0].components, [createOnlinePlayersButtonRow().toJSON()]);
-  assert.doesNotMatch(channel.sent.at(-1)!.embeds[0].description!, /Сервер закрыт/);
-  assert.equal(queries, 2);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS);
-  await notices.publish(event);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
-  assert.deepEqual(errors, []);
-});
-
-test("a manual stop cancels automatic opening, including a timer already waiting behind Discord", async (context) => {
+test("closing an event keeps it closed after six hours until a manual open", async (context) => {
   const { channels, store, notifications } = await setup(context);
   context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
   const channel = fakeChannel();
   channels.set("one", channel);
   const notices = notifications(["one"]);
   await notices.setEventClosed(true);
-  const send = channel.send.bind(channel);
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  channel.send = async (options) => { await gate; return send(options); };
-  const activity = notices.publish(event);
-  await nextTurn();
-  const stop = notices.setEventClosed(false);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS);
-  release();
-  await Promise.all([activity, stop]);
-  await notices.publish(event);
-  assert.equal(store.closed, false);
-  assert.equal(store.autoOpenAt, undefined);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
-});
 
-test("a repeated start begins a new six-hour countdown", async (context) => {
-  const { channels, store, notifications } = await setup(context);
-  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
-  const channel = fakeChannel();
-  channels.set("one", channel);
-  const notices = notifications(["one"]);
-  await notices.setEventClosed(true);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS / 2);
-  await notices.setEventClosed(true);
-  assert.equal(store.autoOpenAt, 1000 + EVENT_AUTO_OPEN_DELAY_MS * 1.5);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS / 2);
+  context.mock.timers.tick(7 * 60 * 60 * 1000);
   await notices.publish(event);
   assert.equal(store.closed, true);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 0);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS / 2);
-  await notices.publish(event);
+  assert.equal(channel.sent.length, 2);
+  assert.match(channel.sent[1].embeds[0].description!, /Сервер закрыт на ивент/);
+
+  await notices.setEventClosed(false);
   assert.equal(store.closed, false);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
+  assert.equal(channel.sent[2].embeds[0].description, EVENT_OPEN_NOTICE);
 });
 
-test("restart restores the remaining time, and overdue events open after reconnecting", async (context) => {
-  const { channels, path, client, errors } = await setup(context);
-  const channel = fakeChannel();
-  channels.set("one", channel);
-  for (const downtime of [EVENT_AUTO_OPEN_DELAY_MS / 2, EVENT_AUTO_OPEN_DELAY_MS + 1000]) {
-    context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
-    const activeStore = new EventStatusStore(path);
-    await activeStore.load();
-    const active = new ActivityNotifications(client, ["one"], activeStore, (_id, error) => errors.push(error),
-      async () => ({ status: "online", snapshot: event, event: null }));
-    await active.setEventClosed(true);
-    const deadline = activeStore.autoOpenAt;
-    // A stopped process loses its timers, while the state file survives.
-    context.mock.timers.reset();
-    context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 + downtime });
-    const restored = new EventStatusStore(path);
-    await restored.load();
-    assert.equal(restored.autoOpenAt, deadline);
-    const restarted = new ActivityNotifications(client, ["one"], restored, (_id, error) => errors.push(error),
-      async () => ({ status: "online", snapshot: event, event: null }));
-    await restarted.restoreAutoOpen();
-    const before = channel.sent.length;
-    if (downtime < EVENT_AUTO_OPEN_DELAY_MS) {
-      context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS - downtime - 1);
-      await restarted.publish(event);
-      assert.equal(restored.closed, true);
-    }
-    context.mock.timers.tick(1);
-    await restarted.publish(event);
-    assert.equal(restored.closed, false);
-    assert.equal(channel.sent.slice(before).filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
-    context.mock.timers.reset();
-  }
-  assert.deepEqual(errors, []);
-});
-
-test("upgrading an active event without a deadline sets one once without reposting closure", async (context) => {
-  const { channels, path, store, notifications } = await setup(context);
-  await writeFile(path, JSON.stringify({ closed: true }));
+test("channel locks track events restored with an old deadline and manual commands", async (context) => {
+  const { channels, store, path, notifications, errors } = await setup(context);
+  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
+  await writeFile(path, JSON.stringify({ closed: true, autoOpenAt: 999 }));
   await store.load();
-  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
-  const channel = fakeChannel();
-  channels.set("one", channel);
-  const notices = notifications(["one"]);
-  await notices.restoreAutoOpen();
-  assert.equal(store.autoOpenAt, 1000 + EVENT_AUTO_OPEN_DELAY_MS);
-  assert.equal(channel.sent.length, 0);
-  context.mock.timers.tick(1000);
-  await notices.restoreAutoOpen();
-  assert.equal(store.autoOpenAt, 1000 + EVENT_AUTO_OPEN_DELAY_MS);
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS - 1000);
-  await notices.publish(event);
-  assert.equal(store.closed, false);
-  assert.equal(channel.sent[0].embeds[0].description, EVENT_OPEN_NOTICE);
-});
-
-test("automatic opening retries after a failed state save instead of losing the timer", async (context) => {
-  const { channels, store, notifications } = await setup(context);
-  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
-  context.mock.method(console, "error", () => {});
-  const channel = fakeChannel();
-  channels.set("one", channel);
-  const notices = notifications(["one"]);
-  await notices.setEventClosed(true);
-  const setClosed = store.setClosed.bind(store);
-  let fail = true;
-  context.mock.method(store, "setClosed", async (closed: boolean) => {
-    if (!closed && fail) {
-      fail = false;
-      throw new Error("Disk temporarily unavailable");
-    }
-    return setClosed(closed);
-  });
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS);
-  await notices.publish(event);
-  assert.equal(store.closed, true);
-  context.mock.timers.tick(59_999);
-  await notices.publish(event);
-  assert.equal(store.closed, true);
-  context.mock.timers.tick(1);
-  await notices.publish(event);
-  assert.equal(store.closed, false);
-  assert.equal(channel.sent.filter((message) => message.embeds[0].description === EVENT_OPEN_NOTICE).length, 1);
-});
-
-test("channel locks track restored events, manual commands and automatic opening", async (context) => {
-  const { channels, store, notifications, errors } = await setup(context);
-  context.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1000 });
   const channel = Object.assign(fakeChannel(), {
     name: "old", async setName(name: string) { this.name = name; },
   });
   channels.set("one", channel);
   const updater = new StatusChannelUpdater(["one"], async () => channel, (_id, error) => errors.push(error));
   const notices = notifications(["one"], undefined, (closed) => updater.setEventClosed(closed));
-  await store.setClosed(true);
-  await notices.restoreAutoOpen();
+  updater.setEventClosed(store.closed);
   updater.update("🟢・union・2⁄26・map");
   await nextTurn();
   assert.equal(channel.name, "🔒・union・2⁄26・map");
+  await notices.publish(event);
+  assert.equal(channel.sent.length, 1);
+  assert.match(channel.sent[0].embeds[0].description!, /Сервер закрыт на ивент/);
   await notices.setEventClosed(false);
   await nextTurn();
   assert.equal(channel.name, "🟢・union・2⁄26・map");
@@ -458,9 +313,5 @@ test("channel locks track restored events, manual commands and automatic opening
   updater.update("🟢・union・3⁄26・new-map");
   await nextTurn();
   assert.equal(channel.name, "🔒・union・3⁄26・new-map");
-  context.mock.timers.tick(EVENT_AUTO_OPEN_DELAY_MS);
-  await notices.publish(event);
-  await nextTurn();
-  assert.equal(channel.name, "🟢・union・3⁄26・new-map");
   assert.deepEqual(errors, []);
 });

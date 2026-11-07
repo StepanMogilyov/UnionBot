@@ -110,10 +110,8 @@ function checkServer() {
 
 client.once("clientReady", () => {
   console.log(`Discord bot logged in as ${client.user?.tag}`);
+  statusChannelUpdater.setEventClosed(eventStatus.closed);
   ltsSchedule.start();
-  void activityNotifications.restoreAutoOpen().catch((error) => {
-    console.error("Ошибка восстановления таймера открытия сервера:", error);
-  });
   void registerEventCommands(client, channelIds, serverCommandName).catch(console.error);
 
   void checkServer().catch(console.error);
